@@ -1,0 +1,62 @@
+# Identificador del vehículo (único por instancia)
+device_id: "COMBI-001"
+
+# Configuración de simulación
+simulation:
+  initial_scenario: "parada_normal"
+  speed: 1.0  # Velocidad de simulación (1x, 2x, etc.)
+  auto_loop: true  # Repetir escenario al terminar
+
+# Frecuencias de sensores (Hz)
+sensors:
+  gps:
+    frequency: 1.0  # 1 Hz = cada 1 segundo
+    initial_position:
+      latitude: 19.4326
+      longitude: -99.1332
+  
+  mpu6050:
+    frequency: 2.0  # 2 Hz = cada 500ms
+    accel_threshold: 0.8  # m/s²
+    turn_threshold: 30.0  # grados/s
+  
+  vl53l0x:
+    frequency: 10.0  # 10 Hz = cada 100ms
+    threshold: 300  # mm (30cm)
+  
+  camera:
+    frequency: 5.0  # 5 Hz = cada 200ms
+    confidence: 0.6  # Umbral YOLO
+
+# Timeouts (segundos)
+timeouts:
+  door_close_confirm: 5.0
+  max_monitoring: 60.0
+  exit_confirmation: 3.0
+  entry_min: 3.0
+  entry_max: 8.0
+
+# Umbrales
+thresholds:
+  movement_kmh: 3.0  # km/h para considerar movimiento
+  distance_mm: 300   # mm para puerta abierta/cerrada
+
+# MQTT (Opcional - deshabilitado por defecto)
+mqtt:
+  enabled: false
+  broker: "localhost:1883"
+  port: 1883
+  username: ""
+  password: ""
+  topics:
+    hybrid: "vehicle/{{device_id}}/hybrid"
+    passenger: "vehicle/{{device_id}}/passenger"
+
+# Configuración de UI
+ui:
+  window:
+    width: 1280
+    height: 720
+    title: "Simulador Transporte - {{device_id}}"
+  theme: "dark"
+  fps: 60
