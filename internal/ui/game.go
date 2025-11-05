@@ -8,14 +8,16 @@ import (
 	"github.com/MarcosBrindi/transporte-simulator/internal/config"
 	"github.com/MarcosBrindi/transporte-simulator/internal/eventbus"
 	"github.com/MarcosBrindi/transporte-simulator/internal/scenario"
+	"github.com/MarcosBrindi/transporte-simulator/internal/statemanager"
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Game es la estructura principal de Ebiten
 type Game struct {
-	bus    *eventbus.EventBus
-	config *config.Config
-	route  *scenario.Route
+	bus      *eventbus.EventBus
+	config   *config.Config
+	route    *scenario.Route
+	stateMgr *statemanager.StateManager
 
 	// Componentes UI
 	vehicleView *VehicleView
@@ -31,22 +33,25 @@ type Game struct {
 	running      bool // ← Movido dentro de la protección del mutex
 
 	// Channels de suscripción
-	gpsEvents     chan eventbus.Event
-	mpuEvents     chan eventbus.Event
-	vehicleEvents chan eventbus.Event
+	gpsEvents       chan eventbus.Event
+	mpuEvents       chan eventbus.Event
+	vehicleEvents   chan eventbus.Event
+	passengerEvents chan eventbus.Event
 }
 
 // NewGame crea una nueva instancia del juego
-func NewGame(bus *eventbus.EventBus, cfg *config.Config, route *scenario.Route) *Game {
+func NewGame(bus *eventbus.EventBus, cfg *config.Config, route *scenario.Route, stateMgr *statemanager.StateManager) *Game {
 	game := &Game{
-		bus:           bus,
-		config:        cfg,
-		route:         route,
-		gpsEvents:     make(chan eventbus.Event, 10),
-		mpuEvents:     make(chan eventbus.Event, 10),
-		vehicleEvents: make(chan eventbus.Event, 10),
-		running:       true,
-		hasData:       false,
+		bus:             bus,
+		config:          cfg,
+		route:           route,
+		stateMgr:        stateMgr,
+		gpsEvents:       make(chan eventbus.Event, 10),
+		mpuEvents:       make(chan eventbus.Event, 10),
+		vehicleEvents:   make(chan eventbus.Event, 10),
+		passengerEvents: make(chan eventbus.Event, 10),
+		running:         true,
+		hasData:         false,
 	}
 
 	// Crear componentes UI
@@ -106,6 +111,19 @@ func (g *Game) subscribeToEvents() {
 			}
 		}
 	}()
+
+	//Passenger events
+	passengerChannel := g.bus.Subscribe(eventbus.EventPassenger)
+	go func() {
+		for event := range passengerChannel {
+			if g.isRunning() {
+				select {
+				case g.passengerEvents <- event:
+				default:
+				}
+			}
+		}
+	}()
 }
 
 // Update actualiza la lógica del juego (llamado por Ebiten a 60 FPS)
@@ -129,6 +147,12 @@ func (g *Game) Update() error {
 	default:
 	}
 
+	select {
+	case event := <-g.passengerEvents: // ← NUEVO
+		g.handlePassengerEvent(event)
+	default:
+	}
+
 	// Actualizar componentes UI
 	g.controls.Update()
 
@@ -145,7 +169,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	gpsData := g.gpsData
 	mpuData := g.mpuData
 	vehicleState := g.vehicleState
-	progress := g.progress // ← Leer progress (línea 148)
+	progress := g.progress
 	g.mu.RUnlock()
 
 	if !hasData {
@@ -153,9 +177,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.drawWaitingMessage(screen)
 		return
 	}
-
+	//Obtener estadísticas de pasajeros
+	current, entries, exits := g.stateMgr.GetPassengerStats()
 	// Dibujar vista del vehículo PASANDO progress
-	g.vehicleView.Draw(screen, gpsData, mpuData, vehicleState, progress)
+	g.vehicleView.Draw(screen, gpsData, mpuData, vehicleState, progress, current, entries, exits)
 
 	// Dibujar controles (en la parte inferior)
 	g.controls.Draw(screen)
@@ -193,6 +218,14 @@ func (g *Game) handleVehicleEvent(event eventbus.Event) {
 	g.mu.Lock()
 	g.vehicleState = data
 	g.mu.Unlock()
+}
+
+// handlePassengerEvent procesa eventos de pasajeros
+func (g *Game) handlePassengerEvent(event eventbus.Event) {
+	data := event.Data.(eventbus.PassengerEventData)
+
+	// Log en consola (opcional, ya se hace en PassengerTracker)
+	_ = data
 }
 
 // drawWaitingMessage dibuja mensaje de espera

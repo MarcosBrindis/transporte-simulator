@@ -19,7 +19,8 @@ type DoorStateManager struct {
 	doorMonitoringStart  time.Time
 	doorCloseStart       time.Time
 	doorCloseConfirmed   bool
-	initialPersonCount   int // Conteo inicial al abrir puerta (Fase 6)
+	initialPersonCount   int // Conteo inicial al abrir puerta
+	wasMonitoring        bool
 }
 
 // NewDoorStateManager crea un nuevo gestor de estado de puerta
@@ -31,6 +32,7 @@ func NewDoorStateManager(cfg config.Config) *DoorStateManager {
 		doorMonitoringActive: false,
 		doorCloseConfirmed:   false,
 		initialPersonCount:   0,
+		wasMonitoring:        false,
 	}
 }
 

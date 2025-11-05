@@ -11,44 +11,56 @@ import (
 
 // StateManager gestiona el estado del vehículo
 type StateManager struct {
-	bus        *eventbus.EventBus
-	calculator *VehicleStateCalculator
-	doorState  *DoorStateManager
+	bus              *eventbus.EventBus
+	calculator       *VehicleStateCalculator
+	doorState        *DoorStateManager
+	passengerTracker *PassengerTracker
 
 	// Channels de suscripción
-	gpsEvents  chan eventbus.Event
-	mpuEvents  chan eventbus.Event
-	doorEvents chan eventbus.Event
+	gpsEvents    chan eventbus.Event
+	mpuEvents    chan eventbus.Event
+	doorEvents   chan eventbus.Event
+	cameraEvents chan eventbus.Event
+
 	// Estado actual
 	mu            sync.RWMutex
 	latestGPS     eventbus.GPSData
 	latestMPU     eventbus.MPUData
 	latestDoor    eventbus.DoorData
+	latestCamera  eventbus.CameraData
 	currentState  eventbus.VehicleStateData
 	previousState string
 	hasGPSData    bool
 	hasMPUData    bool
 	hasDoorData   bool
+	hasCameraData bool
 
 	// Control
 	running bool
 	paused  bool
+
+	// Estado de puerta para tracking de pasajeros
+	previousDoorOpen bool
 }
 
 // NewStateManager crea un nuevo State Manager
 func NewStateManager(bus *eventbus.EventBus, cfg config.Config) *StateManager {
 	return &StateManager{
-		bus:         bus,
-		calculator:  NewVehicleStateCalculator(cfg.Thresholds.MovementKmh),
-		doorState:   NewDoorStateManager(cfg),
-		gpsEvents:   make(chan eventbus.Event, 10),
-		mpuEvents:   make(chan eventbus.Event, 10),
-		doorEvents:  make(chan eventbus.Event, 10),
-		running:     false,
-		paused:      false,
-		hasGPSData:  false,
-		hasMPUData:  false,
-		hasDoorData: false,
+		bus:              bus,
+		calculator:       NewVehicleStateCalculator(cfg.Thresholds.MovementKmh),
+		doorState:        NewDoorStateManager(cfg),
+		passengerTracker: NewPassengerTracker(bus, cfg),
+		gpsEvents:        make(chan eventbus.Event, 10),
+		mpuEvents:        make(chan eventbus.Event, 10),
+		doorEvents:       make(chan eventbus.Event, 10),
+		cameraEvents:     make(chan eventbus.Event, 10),
+		running:          false,
+		paused:           false,
+		hasGPSData:       false,
+		hasMPUData:       false,
+		hasDoorData:      false,
+		hasCameraData:    false,
+		previousDoorOpen: false,
 	}
 }
 
@@ -62,6 +74,7 @@ func (sm *StateManager) Start() {
 	gpsChannel := sm.bus.Subscribe(eventbus.EventGPS)
 	mpuChannel := sm.bus.Subscribe(eventbus.EventMPU)
 	doorChannel := sm.bus.Subscribe(eventbus.EventDoor)
+	cameraChannel := sm.bus.Subscribe(eventbus.EventCamera)
 
 	// Goroutines para reenviar eventos
 	go func() {
@@ -86,12 +99,23 @@ func (sm *StateManager) Start() {
 		}
 	}()
 
-	// Goroutine para eventos de puerta
 	go func() {
 		for event := range doorChannel {
 			if sm.isRunning() {
 				select {
 				case sm.doorEvents <- event:
+				default:
+				}
+			}
+		}
+	}()
+
+	//  Goroutine para eventos de cámara
+	go func() {
+		for event := range cameraChannel {
+			if sm.isRunning() {
+				select {
+				case sm.cameraEvents <- event:
 				default:
 				}
 			}
@@ -157,9 +181,13 @@ func (sm *StateManager) loop() {
 		case doorEvent := <-sm.doorEvents:
 			sm.handleDoor(doorEvent)
 
+		case cameraEvent := <-sm.cameraEvents:
+			sm.handleCamera(cameraEvent)
+
 		case <-ticker.C:
 			if !sm.isPaused() {
 				sm.calculateAndPublishState()
+				sm.checkPassengerConfirmations()
 			}
 		}
 	}
@@ -190,8 +218,10 @@ func (sm *StateManager) handleDoor(event eventbus.Event) {
 	data := event.Data.(eventbus.DoorData)
 
 	sm.mu.Lock()
+	previousDoorOpen := sm.previousDoorOpen
 	sm.latestDoor = data
 	sm.hasDoorData = true
+	sm.previousDoorOpen = data.IsOpen
 
 	// Actualizar máquina de estados de puerta
 	if sm.hasGPSData && sm.hasMPUData {
@@ -199,6 +229,28 @@ func (sm *StateManager) handleDoor(event eventbus.Event) {
 	}
 
 	sm.mu.Unlock()
+
+	// Notificar a PassengerTracker sobre cambios de puerta
+	if !previousDoorOpen && data.IsOpen {
+		// Puerta se abrió
+		sm.passengerTracker.OnDoorOpened()
+	} else if previousDoorOpen && !data.IsOpen {
+		// Puerta EMPIEZA a cerrarse (antes de confirmación)
+		sm.passengerTracker.OnDoorClosing() // ← NUEVO
+	}
+}
+
+// handleCamera procesa eventos de cámara
+func (sm *StateManager) handleCamera(event eventbus.Event) {
+	data := event.Data.(eventbus.CameraData)
+
+	sm.mu.Lock()
+	sm.latestCamera = data
+	sm.hasCameraData = true
+	sm.mu.Unlock()
+
+	// Procesar datos de cámara en PassengerTracker
+	sm.passengerTracker.ProcessCameraData(data)
 }
 
 // calculateAndPublishState calcula el estado y lo publica
@@ -247,6 +299,34 @@ func (sm *StateManager) calculateAndPublishState() {
 			doorStatus,
 		)
 	}
+
+	// Verificar transiciones de estado de puerta
+	sm.checkDoorStateTransitions()
+}
+
+// checkDoorStateTransitions verifica cambios en el estado de la puerta
+func (sm *StateManager) checkDoorStateTransitions() {
+	doorState := sm.doorState.GetCurrentState()
+
+	// Cuando la puerta confirma el cierre (IDLE después de monitoreo)
+	if doorState == eventbus.DoorIdle && sm.doorState.wasMonitoring {
+		sm.passengerTracker.OnDoorClosed()
+		sm.doorState.wasMonitoring = false
+	}
+
+	// Actualizar flag de monitoreo
+	if sm.doorState.IsMonitoring() {
+		sm.doorState.wasMonitoring = true
+	}
+}
+
+// checkPassengerConfirmations verifica confirmaciones pendientes de pasajeros
+func (sm *StateManager) checkPassengerConfirmations() {
+	sm.mu.RLock()
+	isStopped := sm.currentState.IsStopped
+	sm.mu.RUnlock()
+
+	sm.passengerTracker.CheckPendingConfirmations(time.Now(), isStopped)
 }
 
 // GetCurrentState retorna el estado actual (thread-safe)
@@ -254,4 +334,9 @@ func (sm *StateManager) GetCurrentState() eventbus.VehicleStateData {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return sm.currentState
+}
+
+// GetPassengerStats retorna estadísticas de pasajeros
+func (sm *StateManager) GetPassengerStats() (current, entries, exits int) {
+	return sm.passengerTracker.GetStats()
 }

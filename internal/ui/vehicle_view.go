@@ -41,7 +41,7 @@ func NewVehicleView(cfg *config.Config, route *scenario.Route) *VehicleView {
 }
 
 // Draw dibuja la vista del vehículo
-func (vv *VehicleView) Draw(screen *ebiten.Image, gpsData eventbus.GPSData, mpuData eventbus.MPUData, vehicleState eventbus.VehicleStateData, progress float64) {
+func (vv *VehicleView) Draw(screen *ebiten.Image, gpsData eventbus.GPSData, mpuData eventbus.MPUData, vehicleState eventbus.VehicleStateData, progress float64, passengerCurrent, passengerEntries, passengerExits int) {
 	width := float32(vv.config.UI.Window.Width)
 	height := float32(vv.config.UI.Window.Height)
 
@@ -52,6 +52,7 @@ func (vv *VehicleView) Draw(screen *ebiten.Image, gpsData eventbus.GPSData, mpuD
 	vv.drawGPSPanel(screen, 20, 200, gpsData)
 	vv.drawMPUPanel(screen, width-320, 200, mpuData)
 	vv.drawDoorPanel(screen, 20, 360, vehicleState.DoorOpen, 0)
+	vv.drawPassengersPanel(screen, width-320, 360, passengerCurrent, passengerEntries, passengerExits)
 	vv.drawStatePanel(screen, 20, height-180, vehicleState)
 }
 
@@ -198,6 +199,29 @@ func (vv *VehicleView) drawDoorPanel(screen *ebiten.Image, x, y float32, doorOpe
 
 	yOffset += 20
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Distancia: %d mm", doorDistance), int(x+10), yOffset)
+}
+
+// drawPassengersPanel dibuja panel de información de pasajeros
+func (vv *VehicleView) drawPassengersPanel(screen *ebiten.Image, x, y float32, current, entries, exits int) {
+	// Panel de fondo
+	vector.DrawFilledRect(screen, x, y, 280, 120, vv.colorPanelBg, false)
+	vector.StrokeRect(screen, x, y, 280, 120, 2, vv.colorRoute, false)
+
+	// Título
+	ebitenutil.DebugPrintAt(screen, "👥 PASAJEROS", int(x+10), int(y+10))
+
+	// Información
+	yOffset := int(y + 35)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("A bordo: %d", current), int(x+10), yOffset)
+
+	yOffset += 20
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Entradas hoy: %d", entries), int(x+10), yOffset)
+
+	yOffset += 20
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Salidas hoy: %d", exits), int(x+10), yOffset)
+
+	yOffset += 20
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Balance: %+d", entries-exits), int(x+10), yOffset)
 }
 
 // getStateEmoji retorna emoji según el estado

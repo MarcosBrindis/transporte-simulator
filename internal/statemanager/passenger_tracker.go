@@ -23,7 +23,9 @@ type PassengerTracker struct {
 	pendingEntries     map[int]*PendingEntry
 	pendingExits       map[int]*PendingExit
 	initialPersonCount int       // Conteo al abrir puerta
+	lastDetectedCount  int       // Último conteo detectado antes del cierre
 	doorOpenTime       time.Time // Cuando se abrió la puerta por última vez
+	doorClosing        bool      // Flag para saber si puerta está cerrando
 }
 
 // TrackInfo mantiene información de un track
@@ -65,21 +67,23 @@ func NewPassengerTracker(bus *eventbus.EventBus, cfg config.Config) *PassengerTr
 		pendingEntries:        make(map[int]*PendingEntry),
 		pendingExits:          make(map[int]*PendingExit),
 		initialPersonCount:    0,
+		lastDetectedCount:     0,
+		doorClosing:           false,
 	}
 }
 
 // OnDoorOpened maneja cuando la puerta se abre
 func (pt *PassengerTracker) OnDoorOpened() {
-	pt.initialPersonCount = pt.GetCurrentDetectedCount()
+	pt.initialPersonCount = pt.lastDetectedCount
 	pt.doorOpenTime = time.Now()
-
+	pt.doorClosing = false
 	fmt.Printf("👥 [Passengers] Conteo inicial al abrir puerta: %d personas\n", pt.initialPersonCount)
 }
 
 // OnDoorClosed maneja cuando la puerta se cierra (confirmado)
 func (pt *PassengerTracker) OnDoorClosed() {
 	currentTime := time.Now()
-	currentCount := pt.GetCurrentDetectedCount()
+	currentCount := pt.lastDetectedCount
 	passengerDelta := currentCount - pt.initialPersonCount
 	monitoringDuration := currentTime.Sub(pt.doorOpenTime).Seconds()
 
@@ -121,13 +125,19 @@ func (pt *PassengerTracker) OnDoorClosed() {
 		}
 		fmt.Printf("   Sin cambios en pasajeros\n")
 	}
+	pt.doorClosing = false
+	pt.lastDetectedCount = 0
 }
 
 // ProcessCameraData procesa datos de la cámara
 func (pt *PassengerTracker) ProcessCameraData(data eventbus.CameraData) {
 	// Actualizar historial de tracks
 	currentTime := time.Now()
-
+	//Guardar último conteo detectado (solo cuando puerta está abierta)
+	if !pt.doorClosing {
+		pt.lastDetectedCount = data.DetectedPersons
+	}
+	// Actualizar historial de tracks
 	for _, track := range data.Tracks {
 		if _, exists := pt.trackHistory[track.TrackID]; !exists {
 			// Nuevo track
@@ -352,4 +362,10 @@ func (pt *PassengerTracker) GetCurrentDetectedCount() int {
 // GetStats retorna estadísticas
 func (pt *PassengerTracker) GetStats() (current, entries, exits int) {
 	return pt.passengerCountCurrent, pt.dailyEntries, pt.dailyExits
+}
+
+// OnDoorClosing se llama cuando la puerta EMPIEZA a cerrarse (antes de confirmación)
+func (pt *PassengerTracker) OnDoorClosing() {
+	pt.doorClosing = true
+	fmt.Printf("🚪 [Passengers] Puerta cerrándose - último conteo: %d personas\n", pt.lastDetectedCount)
 }

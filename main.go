@@ -16,7 +16,7 @@ import (
 
 func main() {
 	fmt.Println("🚀 === SIMULADOR DE TRANSPORTE PÚBLICO ===")
-	fmt.Println("📡 FASE 5: VL53L0X (Sensor de Puerta) + Door State Machine")
+	fmt.Println("📡 FASE 6: Cámara/YOLO + Passenger Tracker")
 	fmt.Println()
 
 	// Cargar configuración
@@ -42,7 +42,8 @@ func main() {
 	// Crear sensores
 	gps := sensors.NewGPSSimulator(bus, cfg.Sensors.GPS, route)
 	mpu := sensors.NewMPU6050Simulator(bus, cfg.Sensors.MPU6050)
-	vl53l0x := sensors.NewVL53L0XSimulator(bus, cfg.Sensors.VL53L0X) // ← NUEVO
+	vl53l0x := sensors.NewVL53L0XSimulator(bus, cfg.Sensors.VL53L0X)
+	camera := sensors.NewCameraSimulator(bus, cfg.Sensors.Camera)
 
 	// Crear State Manager
 	stateMgr := statemanager.NewStateManager(bus, *cfg)
@@ -50,7 +51,8 @@ func main() {
 	// Iniciar sensores y state manager
 	gps.Start()
 	mpu.Start()
-	vl53l0x.Start() // ← NUEVO
+	vl53l0x.Start()
+	camera.Start() // ← NUEVO
 	stateMgr.Start()
 
 	// Goroutine para actualizar velocidad del MPU basada en GPS
@@ -67,18 +69,27 @@ func main() {
 	go func() {
 		for event := range vehicleChannel {
 			data := event.Data.(eventbus.VehicleStateData)
-			vl53l0x.UpdateVehicleState(data.IsStopped) // ← NUEVO
+			vl53l0x.UpdateVehicleState(data.IsStopped)
+			camera.UpdateVehicleState(data.IsStopped)
 		}
 	}()
 
-	// Simular vehículo moviéndose (automático)
-	// Simular vehículo con paradas para probar puerta
+	// ← NUEVO: Goroutine para actualizar estado de puerta en cámara
+	doorChannel := bus.Subscribe(eventbus.EventDoor)
+	go func() {
+		for event := range doorChannel {
+			data := event.Data.(eventbus.DoorData)
+			camera.UpdateDoorState(data.IsOpen)
+		}
+	}()
+
+	// Simular vehículo con paradas
 	go func() {
 		for {
 			// FASE 1: Detenido en parada (15 segundos)
 			fmt.Println("\n🛑 [Simulación] Vehículo DETENIDO en parada")
 			gps.SetSpeed(0.0)
-			time.Sleep(15 * time.Second) // Suficiente para ver ciclo completo de puerta
+			time.Sleep(15 * time.Second)
 
 			// FASE 2: Arrancando
 			fmt.Println("🚀 [Simulación] Arrancando (10 km/h)")
@@ -111,7 +122,7 @@ func main() {
 	}()
 
 	// Crear juego Ebiten
-	game := ui.NewGame(bus, cfg, route)
+	game := ui.NewGame(bus, cfg, route, stateMgr)
 
 	// Configurar ventana
 	ebiten.SetWindowSize(cfg.UI.Window.Width, cfg.UI.Window.Height)
@@ -132,8 +143,9 @@ func main() {
 	game.Stop()
 	gps.Stop()
 	mpu.Stop()
-	vl53l0x.Stop() // ← NUEVO
+	vl53l0x.Stop()
+	camera.Stop()
 	stateMgr.Stop()
 
-	fmt.Println("👋 ¡Hasta luego!")
+	fmt.Println(" ¡Hasta luego!")
 }
