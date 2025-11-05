@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/MarcosBrindi/transporte-simulator/internal/config"
 	"github.com/MarcosBrindi/transporte-simulator/internal/eventbus"
@@ -14,19 +15,19 @@ import (
 )
 
 func main() {
-	fmt.Println("=== SIMULADOR DE TRANSPORTE PÚBLICO ===")
-	fmt.Println("FASE 4: UI con Ebiten")
+	fmt.Println("🚀 === SIMULADOR DE TRANSPORTE PÚBLICO ===")
+	fmt.Println("📡 FASE 5: VL53L0X (Sensor de Puerta) + Door State Machine")
 	fmt.Println()
 
 	// Cargar configuración
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
-		fmt.Printf("Error cargando config: %v\n", err)
-		fmt.Println("Usando configuración por defecto")
+		fmt.Printf("⚠️  Error cargando config: %v\n", err)
+		fmt.Println("📝 Usando configuración por defecto")
 		cfg = config.Default()
 	}
 
-	fmt.Printf("Device ID: %s\n", cfg.DeviceID)
+	fmt.Printf("🆔 Device ID: %s\n", cfg.DeviceID)
 	fmt.Println()
 
 	// Crear Event Bus
@@ -41,6 +42,7 @@ func main() {
 	// Crear sensores
 	gps := sensors.NewGPSSimulator(bus, cfg.Sensors.GPS, route)
 	mpu := sensors.NewMPU6050Simulator(bus, cfg.Sensors.MPU6050)
+	vl53l0x := sensors.NewVL53L0XSimulator(bus, cfg.Sensors.VL53L0X) // ← NUEVO
 
 	// Crear State Manager
 	stateMgr := statemanager.NewStateManager(bus, *cfg)
@@ -48,6 +50,7 @@ func main() {
 	// Iniciar sensores y state manager
 	gps.Start()
 	mpu.Start()
+	vl53l0x.Start() // ← NUEVO
 	stateMgr.Start()
 
 	// Goroutine para actualizar velocidad del MPU basada en GPS
@@ -59,9 +62,52 @@ func main() {
 		}
 	}()
 
-	// Simular vehículo moviéndose (automático)
+	// Goroutine para actualizar estado de VL53L0X según vehículo
+	vehicleChannel := bus.Subscribe(eventbus.EventVehicle)
 	go func() {
-		gps.SetSpeed(30.0) // 30 km/h constante para demo
+		for event := range vehicleChannel {
+			data := event.Data.(eventbus.VehicleStateData)
+			vl53l0x.UpdateVehicleState(data.IsStopped) // ← NUEVO
+		}
+	}()
+
+	// Simular vehículo moviéndose (automático)
+	// Simular vehículo con paradas para probar puerta
+	go func() {
+		for {
+			// FASE 1: Detenido en parada (15 segundos)
+			fmt.Println("\n🛑 [Simulación] Vehículo DETENIDO en parada")
+			gps.SetSpeed(0.0)
+			time.Sleep(15 * time.Second) // Suficiente para ver ciclo completo de puerta
+
+			// FASE 2: Arrancando
+			fmt.Println("🚀 [Simulación] Arrancando (10 km/h)")
+			gps.SetSpeed(10.0)
+			time.Sleep(2 * time.Second)
+
+			// FASE 3: Acelerando
+			fmt.Println("⚡ [Simulación] Acelerando (30 km/h)")
+			gps.SetSpeed(30.0)
+			time.Sleep(10 * time.Second)
+
+			// FASE 4: Velocidad crucero
+			fmt.Println("🏎️ [Simulación] Velocidad crucero (50 km/h)")
+			gps.SetSpeed(50.0)
+			time.Sleep(15 * time.Second)
+
+			// FASE 5: Frenando
+			fmt.Println("🔽 [Simulación] Frenando (30 km/h)")
+			gps.SetSpeed(30.0)
+			time.Sleep(2 * time.Second)
+
+			fmt.Println("🔽 [Simulación] Frenando más (10 km/h)")
+			gps.SetSpeed(10.0)
+			time.Sleep(2 * time.Second)
+
+			fmt.Println("🛑 [Simulación] Deteniéndose")
+			gps.SetSpeed(0.0)
+			time.Sleep(3 * time.Second)
+		}
 	}()
 
 	// Crear juego Ebiten
@@ -82,11 +128,12 @@ func main() {
 	}
 
 	// Cleanup
-	fmt.Println("\nDeteniendo sistema...")
+	fmt.Println("\n🛑 Deteniendo sistema...")
 	game.Stop()
 	gps.Stop()
 	mpu.Stop()
+	vl53l0x.Stop() // ← NUEVO
 	stateMgr.Stop()
 
-	fmt.Println("¡Hasta luego!")
+	fmt.Println("👋 ¡Hasta luego!")
 }

@@ -13,19 +13,22 @@ import (
 type StateManager struct {
 	bus        *eventbus.EventBus
 	calculator *VehicleStateCalculator
+	doorState  *DoorStateManager
 
 	// Channels de suscripción
-	gpsEvents chan eventbus.Event
-	mpuEvents chan eventbus.Event
-
+	gpsEvents  chan eventbus.Event
+	mpuEvents  chan eventbus.Event
+	doorEvents chan eventbus.Event
 	// Estado actual
 	mu            sync.RWMutex
 	latestGPS     eventbus.GPSData
 	latestMPU     eventbus.MPUData
+	latestDoor    eventbus.DoorData
 	currentState  eventbus.VehicleStateData
 	previousState string
 	hasGPSData    bool
 	hasMPUData    bool
+	hasDoorData   bool
 
 	// Control
 	running bool
@@ -35,14 +38,17 @@ type StateManager struct {
 // NewStateManager crea un nuevo State Manager
 func NewStateManager(bus *eventbus.EventBus, cfg config.Config) *StateManager {
 	return &StateManager{
-		bus:        bus,
-		calculator: NewVehicleStateCalculator(cfg.Thresholds.MovementKmh),
-		gpsEvents:  make(chan eventbus.Event, 10),
-		mpuEvents:  make(chan eventbus.Event, 10),
-		running:    false,
-		paused:     false,
-		hasGPSData: false,
-		hasMPUData: false,
+		bus:         bus,
+		calculator:  NewVehicleStateCalculator(cfg.Thresholds.MovementKmh),
+		doorState:   NewDoorStateManager(cfg),
+		gpsEvents:   make(chan eventbus.Event, 10),
+		mpuEvents:   make(chan eventbus.Event, 10),
+		doorEvents:  make(chan eventbus.Event, 10),
+		running:     false,
+		paused:      false,
+		hasGPSData:  false,
+		hasMPUData:  false,
+		hasDoorData: false,
 	}
 }
 
@@ -55,8 +61,9 @@ func (sm *StateManager) Start() {
 	// Suscribirse a eventos
 	gpsChannel := sm.bus.Subscribe(eventbus.EventGPS)
 	mpuChannel := sm.bus.Subscribe(eventbus.EventMPU)
+	doorChannel := sm.bus.Subscribe(eventbus.EventDoor)
 
-	// Goroutine para reenviar GPS events
+	// Goroutines para reenviar eventos
 	go func() {
 		for event := range gpsChannel {
 			if sm.isRunning() {
@@ -68,7 +75,6 @@ func (sm *StateManager) Start() {
 		}
 	}()
 
-	// Goroutine para reenviar MPU events
 	go func() {
 		for event := range mpuChannel {
 			if sm.isRunning() {
@@ -80,10 +86,22 @@ func (sm *StateManager) Start() {
 		}
 	}()
 
+	// Goroutine para eventos de puerta
+	go func() {
+		for event := range doorChannel {
+			if sm.isRunning() {
+				select {
+				case sm.doorEvents <- event:
+				default:
+				}
+			}
+		}
+	}()
+
 	// Goroutine principal
 	go sm.loop()
 
-	fmt.Println("[StateManager] Iniciado")
+	fmt.Println("✅ [StateManager] Iniciado")
 }
 
 // Stop detiene el State Manager
@@ -92,7 +110,7 @@ func (sm *StateManager) Stop() {
 	sm.running = false
 	sm.mu.Unlock()
 
-	fmt.Println("[StateManager] Detenido")
+	fmt.Println("🛑 [StateManager] Detenido")
 }
 
 // Pause pausa el State Manager
@@ -125,7 +143,7 @@ func (sm *StateManager) isPaused() bool {
 
 // loop es el bucle principal del State Manager
 func (sm *StateManager) loop() {
-	ticker := time.NewTicker(100 * time.Millisecond) // Actualizar cada 100ms
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for sm.isRunning() {
@@ -136,8 +154,10 @@ func (sm *StateManager) loop() {
 		case mpuEvent := <-sm.mpuEvents:
 			sm.handleMPU(mpuEvent)
 
+		case doorEvent := <-sm.doorEvents:
+			sm.handleDoor(doorEvent)
+
 		case <-ticker.C:
-			// Calcular y publicar estado cada 100ms
 			if !sm.isPaused() {
 				sm.calculateAndPublishState()
 			}
@@ -165,11 +185,27 @@ func (sm *StateManager) handleMPU(event eventbus.Event) {
 	sm.mu.Unlock()
 }
 
+// handleDoor procesa eventos de puerta
+func (sm *StateManager) handleDoor(event eventbus.Event) {
+	data := event.Data.(eventbus.DoorData)
+
+	sm.mu.Lock()
+	sm.latestDoor = data
+	sm.hasDoorData = true
+
+	// Actualizar máquina de estados de puerta
+	if sm.hasGPSData && sm.hasMPUData {
+		sm.doorState.Update(data, sm.currentState)
+	}
+
+	sm.mu.Unlock()
+}
+
 // calculateAndPublishState calcula el estado y lo publica
 func (sm *StateManager) calculateAndPublishState() {
 	sm.mu.Lock()
 
-	// Solo calcular si tenemos datos de ambos sensores
+	// Solo calcular si tenemos datos de GPS y MPU
 	if !sm.hasGPSData || !sm.hasMPUData {
 		sm.mu.Unlock()
 		return
@@ -177,6 +213,11 @@ func (sm *StateManager) calculateAndPublishState() {
 
 	// Calcular estado
 	state := sm.calculator.Calculate(sm.latestGPS, sm.latestMPU)
+
+	// Agregar estado de puerta si disponible
+	if sm.hasDoorData {
+		state.DoorOpen = sm.latestDoor.IsOpen
+	}
 
 	// Detectar cambio de estado
 	stateChanged := state.State != sm.previousState
@@ -196,11 +237,14 @@ func (sm *StateManager) calculateAndPublishState() {
 
 	// Log solo cuando cambia el estado
 	if stateChanged {
-		fmt.Printf("🚗 [StateManager] Estado: %s (Speed: %.1f km/h, Accel: %.2f m/s², Giro: %.1f°/s)\n",
+		doorStatus := "🔴"
+		if state.DoorOpen {
+			doorStatus = "🟢"
+		}
+		fmt.Printf("🚗 [StateManager] Estado: %s | Speed: %.1f km/h | Puerta: %s\n",
 			state.State,
 			state.Speed,
-			state.Acceleration,
-			state.TurnRate,
+			doorStatus,
 		)
 	}
 }

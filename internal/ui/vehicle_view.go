@@ -45,12 +45,13 @@ func (vv *VehicleView) Draw(screen *ebiten.Image, gpsData eventbus.GPSData, mpuD
 	width := float32(vv.config.UI.Window.Width)
 	height := float32(vv.config.UI.Window.Height)
 
-	// Dibujar ruta lineal (parte superior) CON PROGRESS
+	// Dibujar ruta lineal (parte superior)
 	vv.drawRoute(screen, gpsData.Speed, progress)
 
 	// Dibujar paneles de información
 	vv.drawGPSPanel(screen, 20, 200, gpsData)
 	vv.drawMPUPanel(screen, width-320, 200, mpuData)
+	vv.drawDoorPanel(screen, 20, 360, vehicleState.DoorOpen, 0)
 	vv.drawStatePanel(screen, 20, height-180, vehicleState)
 }
 
@@ -176,6 +177,27 @@ func (vv *VehicleView) drawStatePanel(screen *ebiten.Image, x, y float32, state 
 		gpsStatus = fmt.Sprintf("✅ GPS Fix (Calidad: %d)", state.GPSQuality)
 	}
 	ebitenutil.DebugPrintAt(screen, gpsStatus, int(x+10), yOffset)
+}
+
+// drawDoorPanel dibuja panel de información de puerta
+func (vv *VehicleView) drawDoorPanel(screen *ebiten.Image, x, y float32, doorOpen bool, doorDistance int) {
+	// Panel de fondo
+	vector.DrawFilledRect(screen, x, y, 280, 100, vv.colorPanelBg, false)
+	vector.StrokeRect(screen, x, y, 280, 100, 2, vv.colorRoute, false)
+
+	// Título
+	ebitenutil.DebugPrintAt(screen, "🚪 PUERTA", int(x+10), int(y+10))
+
+	// Estado de puerta
+	yOffset := int(y + 35)
+	doorStatus := "🔴 CERRADA"
+	if doorOpen {
+		doorStatus = "🟢 ABIERTA"
+	}
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Estado: %s", doorStatus), int(x+10), yOffset)
+
+	yOffset += 20
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Distancia: %d mm", doorDistance), int(x+10), yOffset)
 }
 
 // getStateEmoji retorna emoji según el estado
