@@ -71,13 +71,30 @@ type ThresholdsConfig struct {
 	DistanceMM  int     `yaml:"distance_mm"`
 }
 
+// MQTTConfig configuración MQTT
 type MQTTConfig struct {
-	Enabled  bool              `yaml:"enabled"`
-	Broker   string            `yaml:"broker"`
-	Port     int               `yaml:"port"`
-	Username string            `yaml:"username"`
-	Password string            `yaml:"password"`
-	Topics   map[string]string `yaml:"topics"`
+	Enabled          bool             `yaml:"enabled"`
+	Broker           string           `yaml:"broker"`
+	ClientID         string           `yaml:"client_id"`
+	Username         string           `yaml:"username"`
+	Password         string           `yaml:"password"`
+	QoS              byte             `yaml:"qos"`
+	Retain           bool             `yaml:"retain"`
+	Topics           MQTTTopicsConfig `yaml:"topics"`
+	PublishInterval  float64          `yaml:"publish_interval"`
+	PublishGPS       bool             `yaml:"publish_gps"`
+	PublishHybrid    bool             `yaml:"publish_hybrid"`
+	PublishPassenger bool             `yaml:"publish_passenger"`
+	PublishDoor      bool             `yaml:"publish_door"`
+}
+
+// MQTTTopicsConfig topics MQTT
+type MQTTTopicsConfig struct {
+	Hybrid    string `yaml:"hybrid"`
+	Passenger string `yaml:"passenger"`
+	GPS       string `yaml:"gps"`
+	Door      string `yaml:"door"`
+	Status    string `yaml:"status"`
 }
 
 type UIConfig struct {
@@ -105,13 +122,13 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, fmt.Errorf("error parseando YAML: %w", err)
 	}
 
-	// Reemplazar {{device_id}} en títulos y topics
+	// Reemplazar {{device_id}} y {device_id} en strings
 	config = replaceDeviceIDPlaceholders(config)
 
 	return &config, nil
 }
 
-// replaceDeviceIDPlaceholders reemplaza {{device_id}} en strings
+// replaceDeviceIDPlaceholders reemplaza {{device_id}} y {device_id} en strings
 func replaceDeviceIDPlaceholders(config Config) Config {
 	deviceID := config.DeviceID
 
@@ -122,16 +139,43 @@ func replaceDeviceIDPlaceholders(config Config) Config {
 		deviceID,
 	)
 
-	// Reemplazar en topics MQTT
-	for key, topic := range config.MQTT.Topics {
-		config.MQTT.Topics[key] = strings.ReplaceAll(
-			topic,
-			"{{device_id}}",
-			deviceID,
-		)
-	}
+	// Reemplazar en topics MQTT (cada campo individualmente)
+	config.MQTT.Topics.Hybrid = strings.ReplaceAll(
+		config.MQTT.Topics.Hybrid,
+		"{device_id}",
+		deviceID,
+	)
+
+	config.MQTT.Topics.Passenger = strings.ReplaceAll(
+		config.MQTT.Topics.Passenger,
+		"{device_id}",
+		deviceID,
+	)
+
+	config.MQTT.Topics.GPS = strings.ReplaceAll(
+		config.MQTT.Topics.GPS,
+		"{device_id}",
+		deviceID,
+	)
+
+	config.MQTT.Topics.Door = strings.ReplaceAll(
+		config.MQTT.Topics.Door,
+		"{device_id}",
+		deviceID,
+	)
+
+	config.MQTT.Topics.Status = strings.ReplaceAll(
+		config.MQTT.Topics.Status,
+		"{device_id}",
+		deviceID,
+	)
 
 	return config
+}
+
+// GetTopic retorna un topic reemplazando {device_id} (método auxiliar)
+func (m *MQTTConfig) GetTopic(topicTemplate string, deviceID string) string {
+	return strings.ReplaceAll(topicTemplate, "{device_id}", deviceID)
 }
 
 // Default devuelve una configuración por defecto si no se puede cargar el archivo
@@ -177,13 +221,29 @@ func Default() *Config {
 			DistanceMM:  300,
 		},
 		MQTT: MQTTConfig{
-			Enabled: false,
+			Enabled:          false,
+			Broker:           "tcp://localhost:1883",
+			ClientID:         "combi-default-simulator",
+			QoS:              1,
+			Retain:           false,
+			PublishInterval:  1.0,
+			PublishGPS:       true,
+			PublishHybrid:    true,
+			PublishPassenger: true,
+			PublishDoor:      true,
+			Topics: MQTTTopicsConfig{
+				Hybrid:    "vehicle/COMBI-DEFAULT/hybrid",
+				Passenger: "vehicle/COMBI-DEFAULT/passenger",
+				GPS:       "vehicle/COMBI-DEFAULT/gps",
+				Door:      "vehicle/COMBI-DEFAULT/door",
+				Status:    "vehicle/COMBI-DEFAULT/status",
+			},
 		},
 		UI: UIConfig{
 			Window: WindowConfig{
 				Width:  1280,
 				Height: 720,
-				Title:  "Simulador Transporte",
+				Title:  "Simulador Transporte - COMBI-DEFAULT",
 			},
 			Theme: "dark",
 			FPS:   60,

@@ -41,16 +41,30 @@ thresholds:
   movement_kmh: 3.0  # km/h para considerar movimiento
   distance_mm: 300   # mm para puerta abierta/cerrada
 
-# MQTT (Opcional - deshabilitado por defecto)
+# Configuración MQTT
 mqtt:
-  enabled: false
-  broker: "localhost:1883"
-  port: 1883
-  username: ""
-  password: ""
+  enabled: false  # Cambiar a true cuando tengas broker
+  broker: "tcp://localhost:1883"  # Cambiar por tu broker EC2
+  client_id: "combi-001-simulator"
+  username: ""  # Opcional
+  password: ""  # Opcional
+  qos: 1  # 0, 1, o 2
+  retain: false
+  
+  # Topics
   topics:
-    hybrid: "vehicle/{{device_id}}/hybrid"
-    passenger: "vehicle/{{device_id}}/passenger"
+    hybrid: "vehicle/{device_id}/hybrid"
+    passenger: "vehicle/{device_id}/passenger"
+    gps: "vehicle/{device_id}/gps"
+    door: "vehicle/{device_id}/door"
+    status: "vehicle/{device_id}/status"
+  
+  # Opciones de publicación
+  publish_interval: 1.0  # segundos (publicar cada 1s)
+  publish_gps: true
+  publish_hybrid: true
+  publish_passenger: true
+  publish_door: true
 
 # Configuración de UI
 ui:

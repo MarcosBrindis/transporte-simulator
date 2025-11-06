@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/MarcosBrindi/transporte-simulator/internal/config"
 	"github.com/MarcosBrindi/transporte-simulator/internal/eventbus"
+	"github.com/MarcosBrindi/transporte-simulator/internal/mqtt"
 	"github.com/MarcosBrindi/transporte-simulator/internal/scenario"
 	"github.com/MarcosBrindi/transporte-simulator/internal/sensors"
 	"github.com/MarcosBrindi/transporte-simulator/internal/statemanager"
@@ -16,7 +16,7 @@ import (
 
 func main() {
 	fmt.Println("🚀 === SIMULADOR DE TRANSPORTE PÚBLICO ===")
-	fmt.Println("📡 FASE 6: Cámara/YOLO + Passenger Tracker")
+	fmt.Println("📡 FASE 8: MQTT Publisher")
 	fmt.Println()
 
 	// Cargar configuración
@@ -39,6 +39,20 @@ func main() {
 	fmt.Printf("🗺️  %s\n", route)
 	fmt.Println()
 
+	// ========== NUEVO: Inicializar MQTT Publisher ==========
+	var mqttPublisher *mqtt.Publisher
+	if cfg.MQTT.Enabled {
+		mqttPublisher = mqtt.NewPublisher(cfg.MQTT, cfg.DeviceID, bus)
+		err := mqttPublisher.Start()
+		if err != nil {
+			fmt.Printf("⚠️  [MQTT] No se pudo conectar: %v\n", err)
+			fmt.Println("ℹ️  [MQTT] El sistema continuará sin MQTT")
+		}
+	} else {
+		fmt.Println("ℹ️  [MQTT] Deshabilitado en configuración")
+	}
+	// =======================================================
+
 	// Crear sensores
 	gps := sensors.NewGPSSimulator(bus, cfg.Sensors.GPS, route)
 	mpu := sensors.NewMPU6050Simulator(bus, cfg.Sensors.MPU6050)
@@ -52,7 +66,7 @@ func main() {
 	gps.Start()
 	mpu.Start()
 	vl53l0x.Start()
-	camera.Start() // ← NUEVO
+	camera.Start()
 	stateMgr.Start()
 
 	// Goroutine para actualizar velocidad del MPU basada en GPS
@@ -74,7 +88,7 @@ func main() {
 		}
 	}()
 
-	// ← NUEVO: Goroutine para actualizar estado de puerta en cámara
+	// Goroutine para actualizar estado de puerta en cámara
 	doorChannel := bus.Subscribe(eventbus.EventDoor)
 	go func() {
 		for event := range doorChannel {
@@ -83,43 +97,19 @@ func main() {
 		}
 	}()
 
-	// Simular vehículo con paradas
-	go func() {
-		for {
-			// FASE 1: Detenido en parada (15 segundos)
-			fmt.Println("\n🛑 [Simulación] Vehículo DETENIDO en parada")
-			gps.SetSpeed(0.0)
-			time.Sleep(15 * time.Second)
+	// Cargar y ejecutar escenario
+	scenarioToRun := scenario.GetParadaNormal()
 
-			// FASE 2: Arrancando
-			fmt.Println("🚀 [Simulación] Arrancando (10 km/h)")
-			gps.SetSpeed(10.0)
-			time.Sleep(2 * time.Second)
+	// Opción alternativa: Cargar desde YAML
+	// scenarioToRun, err := scenario.LoadScenario("scenarios/parada_normal.yaml")
+	// if err != nil {
+	//     fmt.Printf("⚠️  Error: %v\n", err)
+	//     scenarioToRun = scenario.GetParadaNormal()
+	// }
 
-			// FASE 3: Acelerando
-			fmt.Println("⚡ [Simulación] Acelerando (30 km/h)")
-			gps.SetSpeed(30.0)
-			time.Sleep(10 * time.Second)
-
-			// FASE 4: Velocidad crucero
-			fmt.Println("🏎️ [Simulación] Velocidad crucero (50 km/h)")
-			gps.SetSpeed(50.0)
-			time.Sleep(15 * time.Second)
-
-			// FASE 5: Frenando
-			fmt.Println("🔽 [Simulación] Frenando (30 km/h)")
-			gps.SetSpeed(30.0)
-			time.Sleep(2 * time.Second)
-
-			fmt.Println("🔽 [Simulación] Frenando más (10 km/h)")
-			gps.SetSpeed(10.0)
-			time.Sleep(2 * time.Second)
-
-			fmt.Println("🛑 [Simulación] Deteniéndose")
-			gps.SetSpeed(0.0)
-			time.Sleep(3 * time.Second)
-		}
-	}()
+	// Crear ejecutor de escenario
+	executor := scenario.NewExecutor(scenarioToRun, gps, bus)
+	executor.Start()
 
 	// Crear juego Ebiten
 	game := ui.NewGame(bus, cfg, route, stateMgr)
@@ -140,6 +130,7 @@ func main() {
 
 	// Cleanup
 	fmt.Println("\n🛑 Deteniendo sistema...")
+	executor.Stop()
 	game.Stop()
 	gps.Stop()
 	mpu.Stop()
@@ -147,5 +138,11 @@ func main() {
 	camera.Stop()
 	stateMgr.Stop()
 
-	fmt.Println(" ¡Hasta luego!")
+	// ========== NUEVO: Detener MQTT ==========
+	if mqttPublisher != nil {
+		mqttPublisher.Stop()
+	}
+	// ==========================================
+
+	fmt.Println("👋 ¡Hasta luego!")
 }

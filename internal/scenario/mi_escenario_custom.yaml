@@ -1,0 +1,70 @@
+name: "Recorrido Matutino"
+description: "Simulación de ruta matutina con 2 paradas"
+duration: 120
+
+steps:
+  # Salida de terminal
+  - time: 0
+    action: log
+    value: "🌅 Inicio de recorrido matutino"
+  
+  - time: 0
+    action: set_speed
+    value: 0.0
+  
+  - time: 3
+    action: wait_door_close
+  
+  - time: 5
+    action: set_speed
+    value: 25.0
+  
+  # Primera parada (t=30s)
+  - time: 28
+    action: set_speed
+    value: 10.0
+  
+  - time: 30
+    action: log
+    value: "🏫 Parada 1: Escuela"
+  
+  - time: 30
+    action: set_speed
+    value: 0.0
+  
+  - time: 35
+    action: wait_door_open
+  
+  - time: 45
+    action: wait_door_close
+  
+  - time: 48
+    action: set_speed
+    value: 30.0
+  
+  # Segunda parada (t=80s)
+  - time: 78
+    action: set_speed
+    value: 10.0
+  
+  - time: 80
+    action: log
+    value: "🏢 Parada 2: Oficinas"
+  
+  - time: 80
+    action: set_speed
+    value: 0.0
+  
+  - time: 85
+    action: wait_door_open
+  
+  - time: 100
+    action: wait_door_close
+  
+  - time: 103
+    action: set_speed
+    value: 35.0
+  
+  - time: 115
+    action: log
+    value: "✅ Recorrido completado"
