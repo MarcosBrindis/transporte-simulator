@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"image/color"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,9 +31,12 @@ type Game struct {
 	camera  *sensors.CameraSimulator
 
 	// Componentes UI
-	vehicleView *VehicleView
-	controls    *Controls
-	eventLog    *EventLog
+	vehicleView      *VehicleView
+	controls         *Controls
+	eventLog         *EventLog
+	scenarioSelector *ScenarioSelector
+	speedGraph       *SpeedGraph
+	cameraTracks     *CameraTracks
 
 	// Estado actual (thread-safe)
 	mu           sync.RWMutex
@@ -49,6 +54,26 @@ type Game struct {
 	mpuEvents       chan eventbus.Event
 	vehicleEvents   chan eventbus.Event
 	passengerEvents chan eventbus.Event
+	cameraEvents    chan eventbus.Event
+}
+
+// NewScenarioSelectorWithOptions crea selector con opciones personalizadas
+func NewScenarioSelectorWithOptions(x, y, width, height float32, options []ScenarioOption) *ScenarioSelector {
+	return &ScenarioSelector{
+		x:               x,
+		y:               y,
+		width:           width,
+		height:          height,
+		selectedIndex:   0,
+		isOpen:          false,
+		hoveredIndex:    -1,
+		colorBg:         color.RGBA{60, 60, 80, 255},
+		colorBgHover:    color.RGBA{80, 80, 100, 255},
+		colorBorder:     color.RGBA{100, 100, 120, 255},
+		colorText:       color.RGBA{255, 255, 255, 255},
+		colorDropdownBg: color.RGBA{40, 40, 60, 255},
+		options:         options, // ← Usar opciones pasadas
+	}
 }
 
 // NewGame crea una nueva instancia del juego
@@ -77,6 +102,7 @@ func NewGame(
 		mpuEvents:       make(chan eventbus.Event, 10),
 		vehicleEvents:   make(chan eventbus.Event, 10),
 		passengerEvents: make(chan eventbus.Event, 10),
+		cameraEvents:    make(chan eventbus.Event, 10),
 		running:         true,
 		hasData:         false,
 	}
@@ -85,6 +111,46 @@ func NewGame(
 	game.vehicleView = NewVehicleView(cfg, route)
 	game.controls = NewControls(cfg)
 	game.eventLog = NewEventLog(15) // Mostrar últimos 15 eventos
+
+	// Descubrir escenarios disponibles
+	scenariosDir := "scenarios" // Directorio donde están los YAML
+	availableScenarios := scenario.DiscoverScenarios(scenariosDir)
+
+	// Convertir a formato del selector
+	selectorOptions := make([]ScenarioOption, len(availableScenarios))
+	for i, s := range availableScenarios {
+		selectorOptions[i] = ScenarioOption{
+			ID:   s.ID,
+			Name: s.Name,
+		}
+	}
+
+	// Crear selector con escenarios descubiertos
+	game.scenarioSelector = NewScenarioSelectorWithOptions(
+		float32(550),
+		float32(cfg.UI.Window.Height-50),
+		300,
+		35,
+		selectorOptions, // ← Pasar escenarios descubiertos
+	)
+
+	// Gráfica de velocidad (derecha, DEBAJO del panel MPU)
+	game.speedGraph = NewSpeedGraph(
+		float32(cfg.UI.Window.Width/2+20), // Mitad derecha
+		500,                               // Más abajo (era 380)
+		float32(cfg.UI.Window.Width/2-40), // Ancho dinámico
+		140,                               // Altura reducida
+		100,                               // 100 puntos
+	)
+
+	// Panel de tracks de cámara (izquierda, DEBAJO del panel Puerta)
+	game.cameraTracks = NewCameraTracks(
+		20,                                // Izquierda
+		500,                               // Misma altura que gráfica (era 380)
+		float32(cfg.UI.Window.Width/2-40), // Mitad izquierda
+		140,                               // Altura reducida
+		5,                                 // Máximo 5 tracks
+	)
 
 	// Suscribirse a eventos
 	game.subscribeToEvents()
@@ -155,6 +221,14 @@ func (g *Game) subscribeToEvents() {
 			}
 		}
 	}()
+
+	// Camera
+	cameraChannel := g.bus.Subscribe(eventbus.EventCamera)
+	go func() {
+		for event := range cameraChannel {
+			g.cameraEvents <- event
+		}
+	}()
 }
 
 // Update actualiza la lógica del juego (llamado por Ebiten a 60 FPS)
@@ -186,6 +260,18 @@ func (g *Game) Update() error {
 	case event := <-g.passengerEvents:
 		g.handlePassengerEvent(event)
 	default:
+	}
+
+	select {
+	case event := <-g.cameraEvents:
+		g.handleCameraEvent(event)
+	default:
+	}
+
+	//Actualizar selector de escenarios
+	changed, newScenarioID := g.scenarioSelector.Update()
+	if changed {
+		g.changeScenario(newScenarioID)
 	}
 
 	//Actualizar controles y procesar acciones
@@ -228,6 +314,15 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	logWidth := float32(800)                         // Más ancho
 	logHeight := float32(200)                        // Más bajo
 	g.eventLog.Draw(screen, logX, logY, logWidth, logHeight)*/
+
+	// Dibujar selector de escenarios
+	g.scenarioSelector.Draw(screen)
+
+	// Dibujar gráfica de velocidad
+	g.speedGraph.Draw(screen)
+
+	// Dibujar tracks de cámara
+	g.cameraTracks.Draw(screen)
 }
 
 // Layout define el tamaño de la ventana
@@ -244,6 +339,17 @@ func (g *Game) handleGPSEvent(event eventbus.Event) {
 	g.progress = data.Progress
 	g.hasData = true
 	g.mu.Unlock()
+
+	//Actualizar gráfica de velocidad
+	g.speedGraph.AddSpeed(float32(data.Speed))
+}
+
+// handleCameraEvent procesa eventos de cámara
+func (g *Game) handleCameraEvent(event eventbus.Event) {
+	data := event.Data.(eventbus.CameraData)
+
+	// Actualizar panel de tracks
+	g.cameraTracks.UpdateFromCameraData(data)
 }
 
 // handleMPUEvent procesa eventos MPU
@@ -357,6 +463,10 @@ func (g *Game) resetSimulation() {
 	// 4. Resetear StateManager
 	g.stateMgr.Reset()
 
+	// Limpiar gráficas y tracks
+	g.speedGraph.Clear()
+	g.cameraTracks.Clear()
+
 	// 5. Limpiar datos locales
 	g.mu.Lock()
 	g.hasData = false
@@ -386,8 +496,8 @@ func (g *Game) resetSimulation() {
 }
 
 // loadScenario carga un escenario por nombre
-func (g *Game) loadScenario(name string) *scenario.Scenario {
-	switch name {
+func (g *Game) loadScenario(id string) *scenario.Scenario {
+	switch id {
 	case "parada_normal":
 		return scenario.GetParadaNormal()
 	case "parada_con_salidas":
@@ -395,6 +505,23 @@ func (g *Game) loadScenario(name string) *scenario.Scenario {
 	case "circuito_completo":
 		return scenario.GetCircuitoCompleto()
 	default:
+		// Si el ID empieza con "yaml_", cargar desde archivo
+		if strings.HasPrefix(id, "yaml_") {
+			scenariosDir := "scenarios"
+			fileName := strings.TrimPrefix(id, "yaml_") + ".yaml"
+			filePath := filepath.Join(scenariosDir, fileName)
+
+			scn, err := scenario.LoadFromYAML(filePath)
+			if err != nil {
+				fmt.Printf("❌ Error cargando escenario YAML: %v\n", err)
+				return scenario.GetParadaNormal() // Fallback
+			}
+
+			fmt.Printf("✅ Escenario YAML cargado: %s\n", scn.Name)
+			return scn
+		}
+
+		// Fallback a parada normal
 		return scenario.GetParadaNormal()
 	}
 }
@@ -424,4 +551,28 @@ func (g *Game) applySpeedMultiplier(multiplier float64) {
 	fmt.Printf("   MPU: %.1f Hz → %.1f Hz\n", baseMPUFreq, newMPUFreq)
 	fmt.Printf("   VL53L0X: %.1f Hz → %.1f Hz\n", baseVL53Freq, newVL53Freq)
 	fmt.Printf("   Camera: %.1f Hz → %.1f Hz\n", baseCameraFreq, newCameraFreq)
+}
+
+// changeScenario cambia el escenario actual
+func (g *Game) changeScenario(scenarioID string) {
+	fmt.Printf("🔄 [UI] Cambiando escenario a: %s\n", scenarioID)
+
+	g.controls.SetSystemState(StateLoading)
+	g.controls.SetScenario(scenarioID)
+
+	// Detener executor actual
+	if g.executor != nil {
+		g.executor.Stop()
+	}
+
+	// Cargar nuevo escenario
+	newScenario := g.loadScenario(scenarioID)
+
+	// Crear nuevo executor
+	g.executor = scenario.NewExecutor(newScenario, g.gps, g.bus)
+	g.executor.Start()
+
+	g.controls.SetSystemState(StateRunning)
+
+	fmt.Printf("✅ [UI] Escenario cambiado a: %s\n", newScenario.Name)
 }

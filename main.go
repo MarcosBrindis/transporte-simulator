@@ -15,19 +15,19 @@ import (
 )
 
 func main() {
-	fmt.Println("🚀 === SIMULADOR DE TRANSPORTE PÚBLICO ===")
-	fmt.Println("📡 FASE 8: MQTT Publisher")
+	fmt.Println("=== SIMULADOR DE TRANSPORTE PÚBLICO ===")
+	fmt.Println("FASE Final")
 	fmt.Println()
 
 	// Cargar configuración
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
-		fmt.Printf("⚠️  Error cargando config: %v\n", err)
-		fmt.Println("📝 Usando configuración por defecto")
+		fmt.Printf("Error cargando config: %v\n", err)
+		fmt.Println("Usando configuración por defecto")
 		cfg = config.Default()
 	}
 
-	fmt.Printf("🆔 Device ID: %s\n", cfg.DeviceID)
+	fmt.Printf("Device ID: %s\n", cfg.DeviceID)
 	fmt.Println()
 
 	// Crear Event Bus
@@ -36,7 +36,7 @@ func main() {
 
 	// Crear ruta
 	route := scenario.NewDefaultRoute()
-	fmt.Printf("🗺️  %s\n", route)
+	fmt.Printf("  %s\n", route)
 	fmt.Println()
 
 	// ========== NUEVO: Inicializar MQTT Publisher ==========
@@ -45,11 +45,11 @@ func main() {
 		mqttPublisher = mqtt.NewPublisher(cfg.MQTT, cfg.DeviceID, bus)
 		err := mqttPublisher.Start()
 		if err != nil {
-			fmt.Printf("⚠️  [MQTT] No se pudo conectar: %v\n", err)
-			fmt.Println("ℹ️  [MQTT] El sistema continuará sin MQTT")
+			fmt.Printf("[MQTT] No se pudo conectar: %v\n", err)
+			fmt.Println("[MQTT] El sistema continuará sin MQTT")
 		}
 	} else {
-		fmt.Println("ℹ️  [MQTT] Deshabilitado en configuración")
+		fmt.Println("[MQTT] Deshabilitado en configuración")
 	}
 	// =======================================================
 
@@ -119,8 +119,8 @@ func main() {
 	ebiten.SetWindowTitle(cfg.UI.Window.Title)
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 
-	fmt.Println("🎮 Iniciando UI con Ebiten...")
-	fmt.Println("⚠️  Cierra la ventana para salir")
+	fmt.Println("Iniciando UI con Ebiten...")
+	fmt.Println("Cierra la ventana para salir")
 	fmt.Println()
 
 	// Ejecutar juego

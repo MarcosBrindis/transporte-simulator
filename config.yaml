@@ -70,7 +70,7 @@ mqtt:
 ui:
   window:
     width: 1280
-    height: 720
+    height: 850  
     title: "Simulador Transporte - {{device_id}}"
   theme: "dark"
   fps: 60

@@ -124,3 +124,18 @@ func (s *Scenario) GetDuration() time.Duration {
 func (s *Scenario) String() string {
 	return fmt.Sprintf("Escenario: %s (%d pasos, %.0fs)", s.Name, len(s.Steps), s.GetDuration().Seconds())
 }
+
+// LoadFromYAML carga un escenario desde un archivo YAML
+func LoadFromYAML(filePath string) (*Scenario, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("error leyendo archivo: %w", err)
+	}
+
+	var scenario Scenario
+	if err := yaml.Unmarshal(data, &scenario); err != nil {
+		return nil, fmt.Errorf("error parseando YAML: %w", err)
+	}
+
+	return &scenario, nil
+}
