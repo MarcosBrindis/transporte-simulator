@@ -25,6 +25,10 @@ type VL53L0XSimulator struct {
 	vehicleStopped  bool // Si el vehículo está detenido
 	simulationCycle int  // Ciclo de simulación
 	lastOpenTime    time.Time
+
+	// Campos de estado actual
+	distance         int  // Distancia actual en mm
+	isVehicleStopped bool // Si el vehículo está detenido
 }
 
 // NewVL53L0XSimulator crea un nuevo simulador VL53L0X
@@ -185,4 +189,23 @@ func (vl *VL53L0XSimulator) GetCurrentState() (distanceMM int, isOpen bool) {
 	vl.mu.RLock()
 	defer vl.mu.RUnlock()
 	return vl.distanceMM, vl.isOpen
+}
+
+// Reset reinicia el sensor
+func (vl *VL53L0XSimulator) Reset() {
+	vl.mu.Lock()
+	defer vl.mu.Unlock()
+
+	vl.distance = vl.config.Threshold - 50
+	vl.isVehicleStopped = false
+
+	fmt.Println("🔄 [VL53L0X] Reset completado")
+}
+
+// SetFrequency cambia la frecuencia de actualización
+func (vl *VL53L0XSimulator) SetFrequency(freq float64) {
+	vl.mu.Lock()
+	defer vl.mu.Unlock()
+
+	vl.config.Frequency = freq
 }

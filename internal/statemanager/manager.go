@@ -12,6 +12,7 @@ import (
 // StateManager gestiona el estado del vehículo
 type StateManager struct {
 	bus              *eventbus.EventBus
+	cfg              config.Config
 	calculator       *VehicleStateCalculator
 	doorState        *DoorStateManager
 	passengerTracker *PassengerTracker
@@ -47,6 +48,7 @@ type StateManager struct {
 func NewStateManager(bus *eventbus.EventBus, cfg config.Config) *StateManager {
 	return &StateManager{
 		bus:              bus,
+		cfg:              cfg,
 		calculator:       NewVehicleStateCalculator(cfg.Thresholds.MovementKmh),
 		doorState:        NewDoorStateManager(cfg),
 		passengerTracker: NewPassengerTracker(bus, cfg),
@@ -339,4 +341,42 @@ func (sm *StateManager) GetCurrentState() eventbus.VehicleStateData {
 // GetPassengerStats retorna estadísticas de pasajeros
 func (sm *StateManager) GetPassengerStats() (current, entries, exits int) {
 	return sm.passengerTracker.GetStats()
+}
+
+// Reset reinicia el state manager
+func (sm *StateManager) Reset() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	// Reset flags de datos
+	sm.hasGPSData = false
+	sm.hasMPUData = false
+	sm.hasDoorData = false
+	sm.hasCameraData = false
+	sm.previousDoorOpen = false
+	sm.previousState = ""
+
+	// Reset currentState a valores por defecto (struct vacío)
+	sm.currentState = eventbus.VehicleStateData{
+		State:     "",
+		IsMoving:  false,
+		IsStopped: false,
+		DoorOpen:  false,
+		HasGPSFix: false,
+		Speed:     0.0,
+	}
+
+	// Reset datos de sensores
+	sm.latestGPS = eventbus.GPSData{}
+	sm.latestMPU = eventbus.MPUData{}
+	sm.latestDoor = eventbus.DoorData{}
+	sm.latestCamera = eventbus.CameraData{}
+
+	// Recrear DoorStateManager
+	sm.doorState = NewDoorStateManager(sm.cfg)
+
+	// Recrear PassengerTracker
+	sm.passengerTracker = NewPassengerTracker(sm.bus, sm.cfg)
+
+	fmt.Println("🔄 [StateManager] Reset completado")
 }

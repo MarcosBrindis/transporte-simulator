@@ -10,6 +10,16 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
+// SystemState representa el estado del sistema
+type SystemState string
+
+const (
+	StateRunning SystemState = "RUNNING"
+	StatePaused  SystemState = "PAUSED"
+	StateStopped SystemState = "STOPPED"
+	StateLoading SystemState = "LOADING"
+)
+
 // Button representa un botón clickeable
 type Button struct {
 	X       float32
@@ -37,6 +47,8 @@ type Controls struct {
 	colorButtonHover  color.RGBA
 	colorButtonActive color.RGBA
 	colorText         color.RGBA
+
+	systemState SystemState
 }
 
 // NewControls crea nuevos controles
@@ -50,6 +62,7 @@ func NewControls(cfg *config.Config) *Controls {
 		colorButtonHover:  color.RGBA{80, 80, 100, 255},
 		colorButtonActive: color.RGBA{100, 200, 100, 255},
 		colorText:         color.RGBA{255, 255, 255, 255},
+		systemState:       StateRunning,
 	}
 
 	// Crear botones
@@ -104,6 +117,44 @@ func (c *Controls) createButtons() {
 			Enabled: true,
 		},
 	}
+}
+
+// método para cambiar estado
+func (c *Controls) SetSystemState(state SystemState) {
+	c.systemState = state
+}
+
+// Método para dibujar estado del sistema
+func (c *Controls) drawSystemState(screen *ebiten.Image) {
+	x := float32(c.config.UI.Window.Width - 200)
+	y := float32(20)
+
+	// Determinar color e icono según estado
+	var stateColor color.RGBA
+	var icon string
+
+	switch c.systemState {
+	case StateRunning:
+		stateColor = color.RGBA{100, 255, 100, 255}
+		icon = "🟢"
+	case StatePaused:
+		stateColor = color.RGBA{255, 200, 100, 255}
+		icon = "🟡"
+	case StateStopped:
+		stateColor = color.RGBA{255, 100, 100, 255}
+		icon = "🔴"
+	case StateLoading:
+		stateColor = color.RGBA{100, 150, 255, 255}
+		icon = "🔵"
+	}
+
+	// Fondo
+	vector.DrawFilledRect(screen, x, y, 180, 35, c.colorButton, false)
+	vector.StrokeRect(screen, x, y, 180, 35, 2, stateColor, false)
+
+	// Texto
+	text := icon + " " + string(c.systemState)
+	ebitenutil.DebugPrintAt(screen, text, int(x+10), int(y+10))
 }
 
 // Update actualiza el estado de los controles
@@ -234,6 +285,9 @@ func (c *Controls) Draw(screen *ebiten.Image) {
 
 	// Dibujar atajos de teclado
 	c.drawKeyboardShortcuts(screen)
+
+	// Dibujar estado del sistema
+	c.drawSystemState(screen)
 }
 
 // drawButton dibuja un botón individual

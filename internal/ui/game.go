@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"image/color"
 	"sync"
+	"time"
 
 	"github.com/MarcosBrindi/transporte-simulator/internal/config"
 	"github.com/MarcosBrindi/transporte-simulator/internal/eventbus"
 	"github.com/MarcosBrindi/transporte-simulator/internal/scenario"
+	"github.com/MarcosBrindi/transporte-simulator/internal/sensors"
 	"github.com/MarcosBrindi/transporte-simulator/internal/statemanager"
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -20,9 +22,16 @@ type Game struct {
 	stateMgr *statemanager.StateManager
 	executor *scenario.Executor
 
+	// Referencias a sensores para reset
+	gps     *sensors.GPSSimulator
+	mpu     *sensors.MPU6050Simulator
+	vl53l0x *sensors.VL53L0XSimulator
+	camera  *sensors.CameraSimulator
+
 	// Componentes UI
 	vehicleView *VehicleView
 	controls    *Controls
+	eventLog    *EventLog
 
 	// Estado actual (thread-safe)
 	mu           sync.RWMutex
@@ -43,13 +52,27 @@ type Game struct {
 }
 
 // NewGame crea una nueva instancia del juego
-func NewGame(bus *eventbus.EventBus, cfg *config.Config, route *scenario.Route, stateMgr *statemanager.StateManager, executor *scenario.Executor) *Game {
+func NewGame(
+	bus *eventbus.EventBus,
+	cfg *config.Config,
+	route *scenario.Route,
+	stateMgr *statemanager.StateManager,
+	executor *scenario.Executor,
+	gps *sensors.GPSSimulator,
+	mpu *sensors.MPU6050Simulator,
+	vl53l0x *sensors.VL53L0XSimulator,
+	camera *sensors.CameraSimulator,
+) *Game {
 	game := &Game{
 		bus:             bus,
 		config:          cfg,
 		route:           route,
 		stateMgr:        stateMgr,
 		executor:        executor,
+		gps:             gps,
+		mpu:             mpu,
+		vl53l0x:         vl53l0x,
+		camera:          camera,
 		gpsEvents:       make(chan eventbus.Event, 10),
 		mpuEvents:       make(chan eventbus.Event, 10),
 		vehicleEvents:   make(chan eventbus.Event, 10),
@@ -61,9 +84,13 @@ func NewGame(bus *eventbus.EventBus, cfg *config.Config, route *scenario.Route, 
 	// Crear componentes UI
 	game.vehicleView = NewVehicleView(cfg, route)
 	game.controls = NewControls(cfg)
+	game.eventLog = NewEventLog(15) // Mostrar últimos 15 eventos
 
 	// Suscribirse a eventos
 	game.subscribeToEvents()
+
+	// Log inicial
+	game.eventLog.Add("Sistema iniciado", "success")
 
 	return game
 }
@@ -194,6 +221,13 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Dibujar controles (en la parte inferior)
 	g.controls.Draw(screen)
+
+	// Dibujar log de eventos
+	/*logX := float32(450)                             // Más a la derecha
+	logY := float32(g.config.UI.Window.Height - 250) // Desde abajo
+	logWidth := float32(800)                         // Más ancho
+	logHeight := float32(200)                        // Más bajo
+	g.eventLog.Draw(screen, logX, logY, logWidth, logHeight)*/
 }
 
 // Layout define el tamaño de la ventana
@@ -234,8 +268,12 @@ func (g *Game) handleVehicleEvent(event eventbus.Event) {
 func (g *Game) handlePassengerEvent(event eventbus.Event) {
 	data := event.Data.(eventbus.PassengerEventData)
 
-	// Log en consola (opcional, ya se hace en PassengerTracker)
-	_ = data
+	// Log en consola
+	if data.EventType == "ENTRY" {
+		g.eventLog.Add("✅ Pasajero subió", "success")
+	} else if data.EventType == "EXIT" {
+		g.eventLog.Add("🚪 Pasajero bajó", "info")
+	}
 }
 
 // handleControlAction maneja las acciones de los controles
@@ -247,6 +285,8 @@ func (g *Game) handleControlAction(action string) {
 		if g.executor != nil {
 			g.executor.Resume()
 		}
+		g.controls.SetSystemState(StateRunning)
+		// g.eventLog.Add("▶️ Simulación reanudada", "success")
 
 	case "pause":
 		fmt.Println("⏸️  [UI] PAUSE - Pausando simulación")
@@ -254,28 +294,29 @@ func (g *Game) handleControlAction(action string) {
 		if g.executor != nil {
 			g.executor.Pause()
 		}
+		g.controls.SetSystemState(StatePaused)
+		// g.eventLog.Add("⏸️ Simulación pausada", "warning")
 
 	case "reset":
 		fmt.Println("🔄 [UI] RESET - Reiniciando simulación")
-		// TODO: Implementar reset completo (Fase 9 Nivel 2)
-		fmt.Println("⚠️  Reset completo no implementado aún")
+		g.controls.SetSystemState(StateLoading)
+		// g.eventLog.Add("🔄 Reiniciando...", "info")
+		g.resetSimulation()
 
 	case "speed_1x":
 		fmt.Println("🏃 [UI] Velocidad: 1x")
-		// TODO: Implementar cambio de velocidad (requiere modificar sensores)
+		g.applySpeedMultiplier(1.0)
+		// g.eventLog.Add("🏃 Velocidad: 1x", "info")
 
 	case "speed_2x":
 		fmt.Println("🏃‍♂️ [UI] Velocidad: 2x")
-		// TODO: Implementar cambio de velocidad
+		g.applySpeedMultiplier(2.0)
+		// g.eventLog.Add("🏃‍♂️ Velocidad: 2x", "info")
 
 	case "speed_3x":
 		fmt.Println("🏃‍♀️💨 [UI] Velocidad: 3x")
-		// TODO: Implementar cambio de velocidad
-
-	default:
-		if action != "" {
-			fmt.Printf("⚠️  [UI] Acción desconocida: %s\n", action)
-		}
+		g.applySpeedMultiplier(3.0)
+		// g.eventLog.Add("🏃‍♀️ Velocidad: 3x", "info")
 	}
 }
 
@@ -293,4 +334,94 @@ func (g *Game) Stop() {
 	g.mu.Unlock()
 
 	fmt.Println("🛑 [UI] Juego detenido")
+}
+
+// resetSimulation reinicia toda la simulación
+func (g *Game) resetSimulation() {
+	fmt.Println("🔄 [UI] Reiniciando simulación completa...")
+
+	// 1. Detener executor actual
+	if g.executor != nil {
+		g.executor.Stop()
+	}
+
+	// 2. Pausar sensores
+	g.gps.Pause()
+	g.mpu.Pause()
+	g.vl53l0x.Pause()
+	g.camera.Pause()
+
+	// 3. Resetear GPS a posición inicial
+	g.gps.Reset()
+
+	// 4. Resetear StateManager
+	g.stateMgr.Reset()
+
+	// 5. Limpiar datos locales
+	g.mu.Lock()
+	g.hasData = false
+	g.progress = 0
+	g.mu.Unlock()
+
+	// 6. Esperar un momento para que se estabilice
+	time.Sleep(100 * time.Millisecond)
+
+	// 7. Reanudar sensores
+	g.gps.Resume()
+	g.mpu.Resume()
+	g.vl53l0x.Resume()
+	g.camera.Resume()
+
+	// 8. Reiniciar executor con escenario
+	scenarioName := g.controls.GetSelectedScenario()
+	newScenario := g.loadScenario(scenarioName)
+	g.executor = scenario.NewExecutor(newScenario, g.gps, g.bus)
+	g.executor.Start()
+
+	// 9. Cambiar estado a running
+	g.controls.SetSystemState(StateRunning)
+
+	fmt.Println("✅ [UI] Simulación reiniciada exitosamente")
+	// g.eventLog.Add("✅ Simulación reiniciada", "success")
+}
+
+// loadScenario carga un escenario por nombre
+func (g *Game) loadScenario(name string) *scenario.Scenario {
+	switch name {
+	case "parada_normal":
+		return scenario.GetParadaNormal()
+	case "parada_con_salidas":
+		return scenario.GetParadaConSalidas()
+	case "circuito_completo":
+		return scenario.GetCircuitoCompleto()
+	default:
+		return scenario.GetParadaNormal()
+	}
+}
+
+// applySpeedMultiplier aplica el multiplicador de velocidad a los sensores
+func (g *Game) applySpeedMultiplier(multiplier float64) {
+	fmt.Printf("⚡ [UI] Aplicando multiplicador de velocidad: %.1fx\n", multiplier)
+
+	// Calcular nuevas frecuencias
+	baseGPSFreq := g.config.Sensors.GPS.Frequency
+	baseMPUFreq := g.config.Sensors.MPU6050.Frequency
+	baseVL53Freq := g.config.Sensors.VL53L0X.Frequency
+	baseCameraFreq := g.config.Sensors.Camera.Frequency
+
+	newGPSFreq := baseGPSFreq * multiplier
+	newMPUFreq := baseMPUFreq * multiplier
+	newVL53Freq := baseVL53Freq * multiplier
+	newCameraFreq := baseCameraFreq * multiplier
+
+	// Aplicar nuevas frecuencias
+	g.gps.SetFrequency(newGPSFreq)
+	g.mpu.SetFrequency(newMPUFreq)
+	g.vl53l0x.SetFrequency(newVL53Freq)
+	g.camera.SetFrequency(newCameraFreq)
+
+	fmt.Printf("   GPS: %.1f Hz → %.1f Hz\n", baseGPSFreq, newGPSFreq)
+	fmt.Printf("   MPU: %.1f Hz → %.1f Hz\n", baseMPUFreq, newMPUFreq)
+	fmt.Printf("   VL53L0X: %.1f Hz → %.1f Hz\n", baseVL53Freq, newVL53Freq)
+	fmt.Printf("   Camera: %.1f Hz → %.1f Hz\n", baseCameraFreq, newCameraFreq)
 }

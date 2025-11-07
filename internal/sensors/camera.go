@@ -25,6 +25,9 @@ type CameraSimulator struct {
 	activeTracks   map[int]*PersonTrackState // Tracks activos
 	nextTrackID    int
 	personCount    int // Número de personas simuladas en la puerta
+
+	// Campos de estado actual
+	frameCount int
 }
 
 // PersonTrackState mantiene el estado de un track
@@ -262,4 +265,24 @@ func (cam *CameraSimulator) GetActiveTracksCount() int {
 	cam.mu.RLock()
 	defer cam.mu.RUnlock()
 	return len(cam.activeTracks)
+}
+
+// Reset reinicia la cámara
+func (cam *CameraSimulator) Reset() {
+	cam.mu.Lock()
+	defer cam.mu.Unlock()
+
+	cam.activeTracks = make(map[int]*PersonTrackState)
+	cam.nextTrackID = 1
+	cam.frameCount = 0
+
+	fmt.Println("🔄 [Camera] Reset completado")
+}
+
+// SetFrequency cambia la frecuencia de actualización
+func (cam *CameraSimulator) SetFrequency(freq float64) {
+	cam.mu.Lock()
+	defer cam.mu.Unlock()
+
+	cam.config.Frequency = freq
 }

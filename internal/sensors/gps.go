@@ -23,6 +23,12 @@ type GPSSimulator struct {
 	paused   bool
 	speed    float64 // Velocidad actual en km/h
 	progress float64 // Progreso en la ruta (0.0 a 1.0)
+
+	//Campos de estado actual
+	currentLat float64
+	currentLon float64
+	altitude   float64
+	course     float64
 }
 
 // NewGPSSimulator crea un nuevo simulador GPS
@@ -206,4 +212,28 @@ func (gps *GPSSimulator) GetNextStop() *scenario.Stop {
 	gps.mu.RUnlock()
 
 	return gps.route.GetNextStop(progress)
+}
+
+// Reset reinicia el GPS a su estado inicial
+func (gps *GPSSimulator) Reset() {
+	gps.mu.Lock()
+	defer gps.mu.Unlock()
+
+	gps.speed = 0.0
+	gps.progress = 0.0
+	gps.currentLat = gps.config.InitialPosition.Latitude
+	gps.currentLon = gps.config.InitialPosition.Longitude
+	gps.altitude = 2240.0
+	gps.course = 0.0
+
+	fmt.Println("🔄 [GPS] Reset a posición inicial")
+}
+
+// SetFrequency cambia la frecuencia de actualización
+func (gps *GPSSimulator) SetFrequency(freq float64) {
+	gps.mu.Lock()
+	defer gps.mu.Unlock()
+
+	gps.config.Frequency = freq
+
 }

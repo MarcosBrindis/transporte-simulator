@@ -24,6 +24,11 @@ type MPU6050Simulator struct {
 	previousSpeed  float64   // Velocidad anterior (para calcular aceleración)
 	accelBuffer    []float64 // Buffer para suavizar aceleración
 	lastUpdateTime time.Time
+
+	// Campos de estado actual
+	lastSpeed   float64
+	accelSmooth float64
+	gyroZ       float64
 }
 
 // NewMPU6050Simulator crea un nuevo simulador MPU6050
@@ -211,4 +216,25 @@ func (mpu *MPU6050Simulator) generateData() eventbus.MPUData {
 		IsTurning:      isTurning,
 		VehicleState:   vehicleState,
 	}
+}
+
+// Reset reinicia el MPU6050
+func (mpu *MPU6050Simulator) Reset() {
+	mpu.mu.Lock()
+	defer mpu.mu.Unlock()
+
+	mpu.currentSpeed = 0.0
+	mpu.lastSpeed = 0.0
+	mpu.accelSmooth = 0.0
+	mpu.gyroZ = 0.0
+
+	fmt.Println("🔄 [MPU6050] Reset completado")
+}
+
+// SetFrequency cambia la frecuencia de actualización
+func (mpu *MPU6050Simulator) SetFrequency(freq float64) {
+	mpu.mu.Lock()
+	defer mpu.mu.Unlock()
+
+	mpu.config.Frequency = freq
 }

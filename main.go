@@ -112,7 +112,7 @@ func main() {
 	executor.Start()
 
 	// Crear juego Ebiten
-	game := ui.NewGame(bus, cfg, route, stateMgr, executor)
+	game := ui.NewGame(bus, cfg, route, stateMgr, executor, gps, mpu, vl53l0x, camera)
 
 	// Configurar ventana
 	ebiten.SetWindowSize(cfg.UI.Window.Width, cfg.UI.Window.Height)
