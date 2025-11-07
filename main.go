@@ -112,7 +112,7 @@ func main() {
 	executor.Start()
 
 	// Crear juego Ebiten
-	game := ui.NewGame(bus, cfg, route, stateMgr)
+	game := ui.NewGame(bus, cfg, route, stateMgr, executor)
 
 	// Configurar ventana
 	ebiten.SetWindowSize(cfg.UI.Window.Width, cfg.UI.Window.Height)
@@ -144,5 +144,5 @@ func main() {
 	}
 	// ==========================================
 
-	fmt.Println("👋 ¡Hasta luego!")
+	fmt.Println("¡Hasta luego!")
 }

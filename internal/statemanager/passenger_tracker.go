@@ -2,6 +2,7 @@ package statemanager
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/MarcosBrindi/transporte-simulator/internal/config"
@@ -12,6 +13,9 @@ import (
 type PassengerTracker struct {
 	config config.Config
 	bus    *eventbus.EventBus
+
+	// Mutex para proteger contadores
+	mu sync.RWMutex
 
 	// Contadores
 	passengerCountCurrent int // Pasajeros a bordo actualmente
@@ -226,16 +230,19 @@ func (pt *PassengerTracker) confirmEntry(trackID int, entry *PendingEntry) {
 		Data:      event,
 	})
 
+	pt.mu.Lock()
 	pt.passengerCountCurrent++
 	pt.dailyEntries++
+	current := pt.passengerCountCurrent
+	pt.mu.Unlock()
 
 	if track, exists := pt.trackHistory[trackID]; exists {
 		track.Counted = true
 		track.IsOnboard = true
 	}
 
-	fmt.Printf("[Passengers] ENTRADA CONFIRMADA - Track ID: %d\n", trackID)
-	fmt.Printf("   A bordo: %d\n", pt.passengerCountCurrent)
+	fmt.Printf("✅ [Passengers] ENTRADA CONFIRMADA - Track ID: %d\n", trackID)
+	fmt.Printf("   🚌 A bordo: %d\n", current)
 }
 
 // confirmExit confirma una salida
@@ -247,14 +254,17 @@ func (pt *PassengerTracker) confirmExit(trackID int, exit *PendingExit) {
 		Data:      event,
 	})
 
+	pt.mu.Lock()
 	pt.passengerCountCurrent--
 	if pt.passengerCountCurrent < 0 {
 		pt.passengerCountCurrent = 0
 	}
 	pt.dailyExits++
+	current := pt.passengerCountCurrent
+	pt.mu.Unlock()
 
-	fmt.Printf("[Passengers] SALIDA CONFIRMADA - Track ID: %d\n", trackID)
-	fmt.Printf("   A bordo: %d\n", pt.passengerCountCurrent)
+	fmt.Printf("✅ [Passengers] SALIDA CONFIRMADA - Track ID: %d\n", trackID)
+	fmt.Printf("   🚌 A bordo: %d\n", current)
 }
 
 // processBulkEntries procesa múltiples entradas
@@ -271,13 +281,19 @@ func (pt *PassengerTracker) processBulkEntries(count int) {
 			Data:      event,
 		})
 
+		pt.mu.Lock()
 		pt.passengerCountCurrent++
 		pt.dailyEntries++
+		pt.mu.Unlock()
 
-		fmt.Printf("[Passengers] ENTRADA #%d confirmada (ID: %d)\n", i+1, trackID)
+		fmt.Printf("✅ [Passengers] ENTRADA #%d confirmada (ID: %d)\n", i+1, trackID)
 	}
 
-	fmt.Printf("   A bordo: %d\n", pt.passengerCountCurrent)
+	pt.mu.RLock()
+	current := pt.passengerCountCurrent
+	pt.mu.RUnlock()
+
+	fmt.Printf("   🚌 A bordo: %d\n", current)
 }
 
 // processBulkExits procesa múltiples salidas
@@ -294,16 +310,23 @@ func (pt *PassengerTracker) processBulkExits(count int) {
 			Data:      event,
 		})
 
+		pt.mu.Lock()
 		pt.passengerCountCurrent--
 		if pt.passengerCountCurrent < 0 {
 			pt.passengerCountCurrent = 0
 		}
 		pt.dailyExits++
+		pt.mu.Unlock()
 
-		fmt.Printf("[Passengers] SALIDA #%d confirmada (ID: %d)\n", i+1, trackID)
+		fmt.Printf("✅ [Passengers] SALIDA #%d confirmada (ID: %d)\n", i+1, trackID)
 	}
 
-	fmt.Printf("   A bordo: %d\n", pt.passengerCountCurrent)
+	// ← NUEVO: Leer con lock
+	pt.mu.RLock()
+	current := pt.passengerCountCurrent
+	pt.mu.RUnlock()
+
+	fmt.Printf("   🚌 A bordo: %d\n", current)
 }
 
 // createPassengerEvent crea un evento de pasajero
@@ -315,15 +338,21 @@ func (pt *PassengerTracker) createPassengerEvent(trackID int, eventType string, 
 		passengerDelta = -1
 	}
 
+	pt.mu.RLock()
+	currentCount := pt.passengerCountCurrent
+	totalEntries := pt.dailyEntries
+	totalExits := pt.dailyExits
+	pt.mu.RUnlock()
+
 	return eventbus.PassengerEventData{
 		EventType:        eventType,
 		TrackID:          trackID,
 		Confidence:       confidence,
 		SensorDistanceMM: sensorDistance,
 		PassengerDelta:   passengerDelta,
-		CurrentCount:     pt.passengerCountCurrent,
-		TotalEntries:     pt.dailyEntries,
-		TotalExits:       pt.dailyExits,
+		CurrentCount:     currentCount,
+		TotalEntries:     totalEntries,
+		TotalExits:       totalExits,
 		DeviceID:         pt.config.DeviceID,
 		Timestamp:        time.Now(),
 	}
@@ -361,6 +390,9 @@ func (pt *PassengerTracker) GetCurrentDetectedCount() int {
 
 // GetStats retorna estadísticas
 func (pt *PassengerTracker) GetStats() (current, entries, exits int) {
+	pt.mu.RLock()
+	defer pt.mu.RUnlock()
+
 	return pt.passengerCountCurrent, pt.dailyEntries, pt.dailyExits
 }
 

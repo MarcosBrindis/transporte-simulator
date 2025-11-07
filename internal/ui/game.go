@@ -18,6 +18,7 @@ type Game struct {
 	config   *config.Config
 	route    *scenario.Route
 	stateMgr *statemanager.StateManager
+	executor *scenario.Executor
 
 	// Componentes UI
 	vehicleView *VehicleView
@@ -30,7 +31,9 @@ type Game struct {
 	vehicleState eventbus.VehicleStateData
 	progress     float64
 	hasData      bool
-	running      bool // ← Movido dentro de la protección del mutex
+
+	// Control de ejecución
+	running bool
 
 	// Channels de suscripción
 	gpsEvents       chan eventbus.Event
@@ -40,12 +43,13 @@ type Game struct {
 }
 
 // NewGame crea una nueva instancia del juego
-func NewGame(bus *eventbus.EventBus, cfg *config.Config, route *scenario.Route, stateMgr *statemanager.StateManager) *Game {
+func NewGame(bus *eventbus.EventBus, cfg *config.Config, route *scenario.Route, stateMgr *statemanager.StateManager, executor *scenario.Executor) *Game {
 	game := &Game{
 		bus:             bus,
 		config:          cfg,
 		route:           route,
 		stateMgr:        stateMgr,
+		executor:        executor,
 		gpsEvents:       make(chan eventbus.Event, 10),
 		mpuEvents:       make(chan eventbus.Event, 10),
 		vehicleEvents:   make(chan eventbus.Event, 10),
@@ -56,7 +60,7 @@ func NewGame(bus *eventbus.EventBus, cfg *config.Config, route *scenario.Route, 
 
 	// Crear componentes UI
 	game.vehicleView = NewVehicleView(cfg, route)
-	game.controls = NewControls()
+	game.controls = NewControls(cfg)
 
 	// Suscribirse a eventos
 	game.subscribeToEvents()
@@ -128,6 +132,10 @@ func (g *Game) subscribeToEvents() {
 
 // Update actualiza la lógica del juego (llamado por Ebiten a 60 FPS)
 func (g *Game) Update() error {
+	// Verificar si debe cerrar
+	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
+		return fmt.Errorf("salir")
+	}
 	// Procesar eventos del Event Bus (non-blocking)
 	select {
 	case event := <-g.gpsEvents:
@@ -148,14 +156,16 @@ func (g *Game) Update() error {
 	}
 
 	select {
-	case event := <-g.passengerEvents: // ← NUEVO
+	case event := <-g.passengerEvents:
 		g.handlePassengerEvent(event)
 	default:
 	}
 
-	// Actualizar componentes UI
-	g.controls.Update()
-
+	//Actualizar controles y procesar acciones
+	action := g.controls.Update()
+	if action != "" {
+		g.handleControlAction(action)
+	}
 	return nil
 }
 
@@ -226,6 +236,47 @@ func (g *Game) handlePassengerEvent(event eventbus.Event) {
 
 	// Log en consola (opcional, ya se hace en PassengerTracker)
 	_ = data
+}
+
+// handleControlAction maneja las acciones de los controles
+func (g *Game) handleControlAction(action string) {
+	switch action {
+	case "play":
+		fmt.Println("▶️  [UI] PLAY - Reanudando simulación")
+		g.stateMgr.Resume()
+		if g.executor != nil {
+			g.executor.Resume()
+		}
+
+	case "pause":
+		fmt.Println("⏸️  [UI] PAUSE - Pausando simulación")
+		g.stateMgr.Pause()
+		if g.executor != nil {
+			g.executor.Pause()
+		}
+
+	case "reset":
+		fmt.Println("🔄 [UI] RESET - Reiniciando simulación")
+		// TODO: Implementar reset completo (Fase 9 Nivel 2)
+		fmt.Println("⚠️  Reset completo no implementado aún")
+
+	case "speed_1x":
+		fmt.Println("🏃 [UI] Velocidad: 1x")
+		// TODO: Implementar cambio de velocidad (requiere modificar sensores)
+
+	case "speed_2x":
+		fmt.Println("🏃‍♂️ [UI] Velocidad: 2x")
+		// TODO: Implementar cambio de velocidad
+
+	case "speed_3x":
+		fmt.Println("🏃‍♀️💨 [UI] Velocidad: 3x")
+		// TODO: Implementar cambio de velocidad
+
+	default:
+		if action != "" {
+			fmt.Printf("⚠️  [UI] Acción desconocida: %s\n", action)
+		}
+	}
 }
 
 // drawWaitingMessage dibuja mensaje de espera
