@@ -1,5 +1,5 @@
 # Identificador del vehículo (único por instancia)
-device_id: "COMBI-001"
+device_id: "49269307234447"
 
 # Configuración de simulación
 simulation:
@@ -41,30 +41,31 @@ thresholds:
   movement_kmh: 3.0  # km/h para considerar movimiento
   distance_mm: 300   # mm para puerta abierta/cerrada
 
-# Configuración MQTT
-mqtt:
-  enabled: false  # Cambiar a true cuando tengas broker
-  broker: "tcp://localhost:1883"  # Cambiar por tu broker EC2
-  client_id: "combi-001-simulator"
-  username: ""  # Opcional
-  password: ""  # Opcional
-  qos: 1  # 0, 1, o 2
-  retain: false
+# Configuración RabbitMQ
+rabbitmq:
+  enabled: true
+  host: "34.233.205.241"
+  port: 5672
+  username: "guest"
+  password: "guest"
+  vhost: "/"
+  exchange: "amq.topic"
+  exchange_type: "topic"
   
-  # Topics
-  topics:
-    hybrid: "vehicle/{device_id}/hybrid"
-    passenger: "vehicle/{device_id}/passenger"
-    gps: "vehicle/{device_id}/gps"
-    door: "vehicle/{device_id}/door"
-    status: "vehicle/{device_id}/status"
+  # Routing keys (topics)
+  routing_keys:
+    hybrid: "vehicle.{device_id}.hybrid"
+    passenger: "vehicle.{device_id}.passenger"
   
-  # Opciones de publicación
-  publish_interval: 1.0  # segundos (publicar cada 1s)
-  publish_gps: true
+  # Configuración de publicación
+  publish_interval: 1.0  # segundos
   publish_hybrid: true
   publish_passenger: true
-  publish_door: true
+  
+  # Configuración de conexión
+  heartbeat: 60
+  connection_timeout: 30
+  prefetch_count: 1
 
 # Configuración de UI
 ui:

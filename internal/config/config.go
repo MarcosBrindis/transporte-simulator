@@ -16,6 +16,7 @@ type Config struct {
 	Timeouts   TimeoutsConfig   `yaml:"timeouts"`
 	Thresholds ThresholdsConfig `yaml:"thresholds"`
 	MQTT       MQTTConfig       `yaml:"mqtt"`
+	RabbitMQ   RabbitMQConfig   `yaml:"rabbitmq"`
 	UI         UIConfig         `yaml:"ui"`
 }
 
@@ -97,6 +98,31 @@ type MQTTTopicsConfig struct {
 	Status    string `yaml:"status"`
 }
 
+// RabbitMQConfig configuración de RabbitMQ
+type RabbitMQConfig struct {
+	Enabled           bool                `yaml:"enabled"`
+	Host              string              `yaml:"host"`
+	Port              int                 `yaml:"port"`
+	Username          string              `yaml:"username"`
+	Password          string              `yaml:"password"`
+	VHost             string              `yaml:"vhost"`
+	Exchange          string              `yaml:"exchange"`
+	ExchangeType      string              `yaml:"exchange_type"`
+	RoutingKeys       RabbitMQRoutingKeys `yaml:"routing_keys"`
+	PublishInterval   float64             `yaml:"publish_interval"`
+	PublishHybrid     bool                `yaml:"publish_hybrid"`
+	PublishPassenger  bool                `yaml:"publish_passenger"`
+	Heartbeat         int                 `yaml:"heartbeat"`
+	ConnectionTimeout int                 `yaml:"connection_timeout"`
+	PrefetchCount     int                 `yaml:"prefetch_count"`
+}
+
+// RabbitMQRoutingKeys routing keys (topics) para RabbitMQ
+type RabbitMQRoutingKeys struct {
+	Hybrid    string `yaml:"hybrid"`
+	Passenger string `yaml:"passenger"`
+}
+
 type UIConfig struct {
 	Window WindowConfig `yaml:"window"`
 	Theme  string       `yaml:"theme"`
@@ -170,6 +196,19 @@ func replaceDeviceIDPlaceholders(config Config) Config {
 		deviceID,
 	)
 
+	// Reemplazar en routing keys de RabbitMQ
+	config.RabbitMQ.RoutingKeys.Hybrid = strings.ReplaceAll(
+		config.RabbitMQ.RoutingKeys.Hybrid,
+		"{device_id}",
+		deviceID,
+	)
+
+	config.RabbitMQ.RoutingKeys.Passenger = strings.ReplaceAll(
+		config.RabbitMQ.RoutingKeys.Passenger,
+		"{device_id}",
+		deviceID,
+	)
+
 	return config
 }
 
@@ -237,6 +276,26 @@ func Default() *Config {
 				GPS:       "vehicle/COMBI-DEFAULT/gps",
 				Door:      "vehicle/COMBI-DEFAULT/door",
 				Status:    "vehicle/COMBI-DEFAULT/status",
+			},
+		},
+		RabbitMQ: RabbitMQConfig{
+			Enabled:           false,
+			Host:              "localhost",
+			Port:              5672,
+			Username:          "guest",
+			Password:          "guest",
+			VHost:             "/",
+			Exchange:          "amq.topic",
+			ExchangeType:      "topic",
+			PublishInterval:   1.0,
+			PublishHybrid:     true,
+			PublishPassenger:  true,
+			Heartbeat:         60,
+			ConnectionTimeout: 30,
+			PrefetchCount:     1,
+			RoutingKeys: RabbitMQRoutingKeys{
+				Hybrid:    "vehicle.COMBI-DEFAULT.hybrid",
+				Passenger: "vehicle.COMBI-DEFAULT.passenger",
 			},
 		},
 		UI: UIConfig{

@@ -39,19 +39,34 @@ func main() {
 	fmt.Printf("  %s\n", route)
 	fmt.Println()
 
-	// ========== NUEVO: Inicializar MQTT Publisher ==========
+	// ========== Inicializar Publishers (MQTT y RabbitMQ) ==========
 	var mqttPublisher *mqtt.Publisher
+	var rabbitPublisher *mqtt.RabbitMQPublisher
+
+	// MQTT Publisher
 	if cfg.MQTT.Enabled {
 		mqttPublisher = mqtt.NewPublisher(cfg.MQTT, cfg.DeviceID, bus)
 		err := mqttPublisher.Start()
 		if err != nil {
-			fmt.Printf("[MQTT] No se pudo conectar: %v\n", err)
-			fmt.Println("[MQTT] El sistema continuará sin MQTT")
+			fmt.Printf("⚠️  [MQTT] No se pudo conectar: %v\n", err)
+			fmt.Println("ℹ️  [MQTT] El sistema continuará sin MQTT")
 		}
 	} else {
-		fmt.Println("[MQTT] Deshabilitado en configuración")
+		fmt.Println("ℹ️  [MQTT] Deshabilitado en configuración")
 	}
-	// =======================================================
+
+	// RabbitMQ Publisher
+	if cfg.RabbitMQ.Enabled {
+		rabbitPublisher = mqtt.NewRabbitMQPublisher(cfg.RabbitMQ, cfg.DeviceID, bus)
+		err := rabbitPublisher.Start()
+		if err != nil {
+			fmt.Printf("⚠️  [RabbitMQ] No se pudo conectar: %v\n", err)
+			fmt.Println("ℹ️  [RabbitMQ] El sistema continuará sin RabbitMQ")
+		}
+	} else {
+		fmt.Println("ℹ️  [RabbitMQ] Deshabilitado en configuración")
+	}
+	// ===============================================================
 
 	// Crear sensores
 	gps := sensors.NewGPSSimulator(bus, cfg.Sensors.GPS, route)
@@ -138,11 +153,13 @@ func main() {
 	camera.Stop()
 	stateMgr.Stop()
 
-	// ========== NUEVO: Detener MQTT ==========
+	// Detener Publishers
 	if mqttPublisher != nil {
 		mqttPublisher.Stop()
 	}
-	// ==========================================
+	if rabbitPublisher != nil {
+		rabbitPublisher.Stop()
+	}
 
-	fmt.Println("¡Hasta luego!")
+	fmt.Println("👋 ¡Hasta luego!")
 }

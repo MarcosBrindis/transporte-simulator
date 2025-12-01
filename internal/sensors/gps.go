@@ -24,7 +24,7 @@ type GPSSimulator struct {
 	speed    float64 // Velocidad actual en km/h
 	progress float64 // Progreso en la ruta (0.0 a 1.0)
 
-	//Campos de estado actual
+	// Campos de estado actual
 	currentLat float64
 	currentLon float64
 	altitude   float64
