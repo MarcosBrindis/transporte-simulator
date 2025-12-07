@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 
@@ -9,12 +10,18 @@ import (
 	"github.com/MarcosBrindi/transporte-simulator/internal/mqtt"
 	"github.com/MarcosBrindi/transporte-simulator/internal/scenario"
 	"github.com/MarcosBrindi/transporte-simulator/internal/sensors"
+	"github.com/MarcosBrindi/transporte-simulator/internal/simulator"
 	"github.com/MarcosBrindi/transporte-simulator/internal/statemanager"
 	"github.com/MarcosBrindi/transporte-simulator/internal/ui"
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func main() {
+	// Definir flags
+	headless := flag.Bool("headless", false, "Ejecutar en modo headless (sin UI)")
+	instances := flag.Int("instances", 1, "Número de instancias a ejecutar (1-1000)")
+	flag.Parse()
+
 	fmt.Println("=== SIMULADOR DE TRANSPORTE PÚBLICO ===")
 	fmt.Println("FASE Final")
 	fmt.Println()
@@ -30,12 +37,28 @@ func main() {
 	fmt.Printf("Device ID: %s\n", cfg.DeviceID)
 	fmt.Println()
 
+	// ========== Modo Headless ==========
+	if *headless {
+		fmt.Printf("🚀 Modo HEADLESS: Lanzando %d instancias\n", *instances)
+		fmt.Println()
+		simulator.RunHeadless(*instances, cfg)
+		fmt.Println("\n✅ Simulación finalizada")
+		return
+	}
+
+	// ========== Modo UI (original) ==========
+	fmt.Println("🎮 Modo UI: Iniciando simulación con interfaz gráfica")
+	fmt.Println()
+
 	// Crear Event Bus
 	bus := eventbus.NewEventBus()
 	defer bus.Close()
 
-	// Crear ruta
-	route := scenario.NewDefaultRoute()
+	// Crear ruta usando coordenadas del config
+	route := scenario.NewRouteFromCoordinates(
+		cfg.Sensors.GPS.InitialPosition.Latitude,
+		cfg.Sensors.GPS.InitialPosition.Longitude,
+	)
 	fmt.Printf("  %s\n", route)
 	fmt.Println()
 
@@ -55,13 +78,23 @@ func main() {
 		fmt.Println("ℹ️  [MQTT] Deshabilitado en configuración")
 	}
 
-	// RabbitMQ Publisher
+	// RabbitMQ Publisher (UI mode: su propia conexión)
 	if cfg.RabbitMQ.Enabled {
-		rabbitPublisher = mqtt.NewRabbitMQPublisher(cfg.RabbitMQ, cfg.DeviceID, bus)
-		err := rabbitPublisher.Start()
+		conn, err := mqtt.ConnectRabbitMQ(cfg.RabbitMQ)
 		if err != nil {
 			fmt.Printf("⚠️  [RabbitMQ] No se pudo conectar: %v\n", err)
 			fmt.Println("ℹ️  [RabbitMQ] El sistema continuará sin RabbitMQ")
+		} else {
+			ch, err := conn.Channel()
+			if err != nil {
+				fmt.Printf("⚠️  [RabbitMQ] Error creando canal: %v\n", err)
+			} else {
+				rabbitPublisher = mqtt.NewRabbitMQPublisher(ch, cfg.RabbitMQ, cfg.DeviceID, bus)
+				err := rabbitPublisher.Start()
+				if err != nil {
+					fmt.Printf("⚠️  [RabbitMQ] Error iniciando publisher: %v\n", err)
+				}
+			}
 		}
 	} else {
 		fmt.Println("ℹ️  [RabbitMQ] Deshabilitado en configuración")

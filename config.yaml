@@ -12,8 +12,8 @@ sensors:
   gps:
     frequency: 1.0  # 1 Hz = cada 1 segundo
     initial_position:
-      latitude: 19.4326
-      longitude: -99.1332
+      latitude: 16.7543617
+      longitude: -93.1155954
   
   mpu6050:
     frequency: 2.0  # 2 Hz = cada 500ms
@@ -58,7 +58,7 @@ rabbitmq:
     passenger: "vehicle.{device_id}.passenger"
   
   # Configuración de publicación
-  publish_interval: 1.0  # segundos
+  publish_interval: 5.0  # segundos
   publish_hybrid: true
   publish_passenger: true
   

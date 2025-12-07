@@ -15,7 +15,6 @@ import (
 type RabbitMQPublisher struct {
 	config   config.RabbitMQConfig
 	deviceID string
-	conn     *amqp.Connection
 	channel  *amqp.Channel
 	bus      *eventbus.EventBus
 
@@ -37,14 +36,15 @@ type RabbitMQPublisher struct {
 	passengerEvents chan eventbus.Event
 }
 
-// NewRabbitMQPublisher crea un nuevo publicador RabbitMQ
-func NewRabbitMQPublisher(cfg config.RabbitMQConfig, deviceID string, bus *eventbus.EventBus) *RabbitMQPublisher {
+// NewRabbitMQPublisher crea un nuevo publicador RabbitMQ con canal compartido
+func NewRabbitMQPublisher(ch *amqp.Channel, cfg config.RabbitMQConfig, deviceID string, bus *eventbus.EventBus) *RabbitMQPublisher {
 	return &RabbitMQPublisher{
 		config:          cfg,
 		deviceID:        deviceID,
+		channel:         ch,
 		bus:             bus,
 		running:         false,
-		connected:       false,
+		connected:       true,
 		gpsEvents:       make(chan eventbus.Event, 10),
 		mpuEvents:       make(chan eventbus.Event, 10),
 		vehicleEvents:   make(chan eventbus.Event, 10),
@@ -63,51 +63,19 @@ func (p *RabbitMQPublisher) Start() error {
 	p.running = true
 	p.mu.Unlock()
 
-	// Construir URL de conexión
-	url := fmt.Sprintf("amqp://%s:%s@%s:%d%s",
-		p.config.Username,
-		p.config.Password,
-		p.config.Host,
-		p.config.Port,
-		p.config.VHost,
-	)
-
-	// Conectar
-	fmt.Printf("📡 [RabbitMQ] Conectando a %s:%d...\n", p.config.Host, p.config.Port)
-
-	var err error
-	p.conn, err = amqp.Dial(url)
-	if err != nil {
-		return fmt.Errorf("error conectando a RabbitMQ: %w", err)
+	if p.channel == nil {
+		return fmt.Errorf("canal RabbitMQ no inicializado")
 	}
 
-	// Crear canal
-	p.channel, err = p.conn.Channel()
-	if err != nil {
-		p.conn.Close()
-		return fmt.Errorf("error creando canal: %w", err)
-	}
-
-	// Confirmar que el exchange existe (amq.topic es predefinido, no necesita declararse)
-	// Solo verificamos la conexión
-	p.mu.Lock()
-	p.connected = true
-	p.mu.Unlock()
-
-	fmt.Println("✅ [RabbitMQ] Conectado exitosamente")
+	fmt.Println("✅ [RabbitMQ] Publicador iniciado")
 	fmt.Printf("📤 [RabbitMQ] Exchange: %s (type: %s)\n", p.config.Exchange, p.config.ExchangeType)
-	fmt.Printf("🔑 [RabbitMQ] Routing keys:")
-	fmt.Printf("\n   - Hybrid: %s\n", p.config.RoutingKeys.Hybrid)
-	fmt.Printf("   - Passenger: %s\n", p.config.RoutingKeys.Passenger)
+	fmt.Printf("🔑 [RabbitMQ] Device ID: %s\n", p.deviceID)
 
 	// Suscribirse a eventos del bus
 	p.subscribeToEvents()
 
 	// Iniciar publicación periódica
 	go p.publishLoop()
-
-	// Monitor de conexión
-	go p.monitorConnection()
 
 	return nil
 }
@@ -118,62 +86,7 @@ func (p *RabbitMQPublisher) Stop() {
 	p.running = false
 	p.mu.Unlock()
 
-	if p.channel != nil {
-		p.channel.Close()
-	}
-
-	if p.conn != nil {
-		p.conn.Close()
-	}
-
-	fmt.Println("🛑 [RabbitMQ] Desconectado")
-}
-
-// monitorConnection monitorea la conexión y reconecta si es necesario
-func (p *RabbitMQPublisher) monitorConnection() {
-	for p.isRunning() {
-		if p.conn != nil && p.conn.IsClosed() {
-			fmt.Println("⚠️  [RabbitMQ] Conexión perdida, intentando reconectar...")
-
-			p.mu.Lock()
-			p.connected = false
-			p.mu.Unlock()
-
-			// Intentar reconectar
-			url := fmt.Sprintf("amqp://%s:%s@%s:%d%s",
-				p.config.Username,
-				p.config.Password,
-				p.config.Host,
-				p.config.Port,
-				p.config.VHost,
-			)
-
-			conn, err := amqp.Dial(url)
-			if err != nil {
-				fmt.Printf("❌ [RabbitMQ] Error reconectando: %v\n", err)
-				time.Sleep(5 * time.Second)
-				continue
-			}
-
-			channel, err := conn.Channel()
-			if err != nil {
-				conn.Close()
-				fmt.Printf("❌ [RabbitMQ] Error creando canal: %v\n", err)
-				time.Sleep(5 * time.Second)
-				continue
-			}
-
-			p.mu.Lock()
-			p.conn = conn
-			p.channel = channel
-			p.connected = true
-			p.mu.Unlock()
-
-			fmt.Println("✅ [RabbitMQ] Reconectado exitosamente")
-		}
-
-		time.Sleep(5 * time.Second)
-	}
+	fmt.Printf("🛑 [RabbitMQ] Publicador detenido (%s)\n", p.deviceID)
 }
 
 // subscribeToEvents suscribe a eventos del bus
@@ -411,4 +324,23 @@ func (p *RabbitMQPublisher) isConnected() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.connected
+}
+
+// ConnectRabbitMQ establece conexión a RabbitMQ y retorna la conexión
+func ConnectRabbitMQ(cfg config.RabbitMQConfig) (*amqp.Connection, error) {
+	url := fmt.Sprintf(
+		"amqp://%s:%s@%s:%d/%s",
+		cfg.Username,
+		cfg.Password,
+		cfg.Host,
+		cfg.Port,
+		cfg.VHost,
+	)
+
+	conn, err := amqp.Dial(url)
+	if err != nil {
+		return nil, fmt.Errorf("error conectando a RabbitMQ: %w", err)
+	}
+
+	return conn, nil
 }

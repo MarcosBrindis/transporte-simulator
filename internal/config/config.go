@@ -230,8 +230,8 @@ func Default() *Config {
 			GPS: GPSConfig{
 				Frequency: 1.0,
 				InitialPosition: Position{
-					Latitude:  19.4326,
-					Longitude: -99.1332,
+					Latitude:  0.0, // Se debe configurar en config.yaml
+					Longitude: 0.0, // Se debe configurar en config.yaml
 				},
 			},
 			MPU6050: MPU6050Config{

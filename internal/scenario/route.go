@@ -20,15 +20,20 @@ type Route struct {
 	EndLon   float64 // Longitud final
 }
 
-// NewDefaultRoute crea una ruta de ejemplo
+// NewDefaultRoute crea una ruta de ejemplo con coordenadas parametrizadas
 func NewDefaultRoute() *Route {
+	return NewRouteFromCoordinates(16.7543617, -93.1155954)
+}
+
+// NewRouteFromCoordinates crea una ruta usando coordenadas iniciales específicas
+func NewRouteFromCoordinates(startLat, startLon float64) *Route {
 	return &Route{
 		Name:     "Ruta 5 - Centro",
 		Length:   10.0, // 10 km
-		StartLat: 19.4326,
-		StartLon: -99.1332,
-		EndLat:   19.4426,  // ~1.1 km al norte
-		EndLon:   -99.1232, // ~1.1 km al este
+		StartLat: startLat,
+		StartLon: startLon,
+		EndLat:   startLat + 0.01, // ~1.1 km al norte
+		EndLon:   startLon + 0.01, // ~1.1 km al este
 		Stops: []Stop{
 			{ID: 1, Name: "Terminal Sur", Position: 0.0},
 			{ID: 2, Name: "Centro Comercial", Position: 0.25},
